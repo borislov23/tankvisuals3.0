@@ -1,0 +1,41 @@
+name: Build TankVisuals
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: Build mod
+        run: gradle build --no-daemon
+
+      - name: Upload Minecraft mod
+        uses: actions/upload-artifact@v4
+        with:
+          name: TankVisuals-1.0.0
+          path: build/libs/*.jar
+          if-no-files-found: error
+          retention-days: 14
