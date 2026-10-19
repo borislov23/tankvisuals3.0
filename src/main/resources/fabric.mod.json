@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "tankvisuals",
+  "version": "${version}",
+  "name": "TankVisuals",
+  "description": "Custom Client Mod for Minecraft 1.21.4",
+  "authors": ["borislov23"],
+  "contact": {},
+  "license": "MIT",
+  "icon": "assets/tankvisuals/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.tankvisuals.TankVisualsClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.9",
+    "minecraft": "~1.21.4",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}
