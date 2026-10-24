@@ -129,4 +129,101 @@ public class TankVisualsClient implements ClientModInitializer {
         } else if (swapMode == 1) {
             if (!offhandStack.isOf(Items.TOTEM_OF_UNDYING)) {
                 int totemSlot = findAnyItemSlot(client, Items.TOTEM_OF_UNDYING);
-                if (
+                if (totemSlot != -1) swapSlotWithOffhand(client, syncId, totemSlot);
+            } else {
+                int headSlot = findAnyItemSlot(client, Items.PLAYER_HEAD);
+                if (headSlot != -1) swapSlotWithOffhand(client, syncId, headSlot);
+            }
+        }
+    }
+
+    private void performElytraSwap(MinecraftClient client) {
+        if (client.interactionManager == null || client.player == null) return;
+        int syncId = client.player.playerScreenHandler.syncId;
+        
+        ItemStack chestStack = client.player.playerScreenHandler.getSlot(6).getStack();
+
+        if (!chestStack.isOf(Items.ELYTRA)) {
+            int elytraSlot = findAnyItemSlot(client, Items.ELYTRA);
+            if (elytraSlot != -1) {
+                swapArmorSlot(client, syncId, elytraSlot, 6);
+            }
+        } else {
+            int chestplateSlot = findChestplateSlot(client);
+            if (chestplateSlot != -1) {
+                swapArmorSlot(client, syncId, chestplateSlot, 6);
+            }
+        }
+    }
+
+    private int findAnyItemSlot(MinecraftClient client, net.minecraft.item.Item item) {
+        for (int i = 0; i < client.player.playerScreenHandler.slots.size(); i++) {
+            if (i == 45) continue;
+            if (client.player.playerScreenHandler.getSlot(i).getStack().isOf(item)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private int findChestplateSlot(MinecraftClient client) {
+        for (int i = 0; i < client.player.playerScreenHandler.slots.size(); i++) {
+            ItemStack stack = client.player.playerScreenHandler.getSlot(i).getStack();
+            if (stack.getItem().toString().contains("chestplate")) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private void swapSlotWithOffhand(MinecraftClient client, int syncId, int slot) {
+        client.interactionManager.clickSlot(syncId, slot, 0, SlotActionType.PICKUP, client.player);
+        client.interactionManager.clickSlot(syncId, 45, 0, SlotActionType.PICKUP, client.player);
+        client.interactionManager.clickSlot(syncId, slot, 0, SlotActionType.PICKUP, client.player);
+    }
+
+    private void swapArmorSlot(MinecraftClient client, int syncId, int fromSlot, int armorSlot) {
+        client.interactionManager.clickSlot(syncId, fromSlot, 0, SlotActionType.PICKUP, client.player);
+        client.interactionManager.clickSlot(syncId, armorSlot, 0, SlotActionType.PICKUP, client.player);
+        client.interactionManager.clickSlot(syncId, fromSlot, 0, SlotActionType.PICKUP, client.player);
+    }
+
+    private static class SoupGuiScreen extends Screen {
+        protected SoupGuiScreen() {
+            super(Text.literal("SoupVisuals ClickGUI"));
+        }
+
+        @Override
+        public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+            super.render(context, mouseX, mouseY, delta);
+            int x = width / 2 - 130;
+            int y = height / 2 - 110;
+
+            context.fill(x, y, x + 260, y + 220, 0xEE1A1A1A);
+            context.fill(x, y, x + 260, y + 25, 0xEE2A2A2A);
+            context.drawCenteredTextWithShadow(textRenderer, "TankVisuals // SoupVisuals Style", width / 2, y + 8, 0xFF55FF55);
+
+            context.drawTextWithShadow(textRenderer, "[1] Player HUD: " + (hudEnabled ? "ON" : "OFF"), x + 15, y + 35, hudEnabled ? 0x55FF55 : 0xFF5555);
+            context.drawTextWithShadow(textRenderer, "[2] Target HUD: " + (targetHudEnabled ? "ON" : "OFF"), x + 15, y + 60, targetHudEnabled ? 0x55FF55 : 0xFF5555);
+            context.drawTextWithShadow(textRenderer, "[3] Optimization: " + (optimizationEnabled ? "ON" : "OFF"), x + 15, y + 85, optimizationEnabled ? 0x55FF55 : 0xFF5555);
+            context.drawTextWithShadow(textRenderer, "[4] Item Swap (G): " + (itemSwapEnabled ? "ON" : "OFF"), x + 15, y + 110, itemSwapEnabled ? 0x55FF55 : 0xFF5555);
+            context.drawTextWithShadow(textRenderer, "[5] Elytra Swap (V): " + (elytraSwapEnabled ? "ON" : "OFF"), x + 15, y + 135, elytraSwapEnabled ? 0x55FF55 : 0xFF5555);
+
+            String modeStr = (swapMode == 0) ? "Тотем ⇄ Тотем" : "Сфера ⇄ Тотем";
+            context.drawTextWithShadow(textRenderer, "[M] Режим свапа: " + modeStr, x + 15, y + 165, 0xFFFF55);
+
+            context.drawTextWithShadow(textRenderer, "Нажми 1-5 или M для выбора", x + 15, y + 195, 0xAAAAAA);
+        }
+
+        @Override
+        public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+            if (keyCode == GLFW.GLFW_KEY_1) { hudEnabled = !hudEnabled; return true; }
+            if (keyCode == GLFW.GLFW_KEY_2) { targetHudEnabled = !targetHudEnabled; return true; }
+            if (keyCode == GLFW.GLFW_KEY_3) { optimizationEnabled = !optimizationEnabled; return true; }
+            if (keyCode == GLFW.GLFW_KEY_4) { itemSwapEnabled = !itemSwapEnabled; return true; }
+            if (keyCode == GLFW.GLFW_KEY_5) { elytraSwapEnabled = !elytraSwapEnabled; return true; }
+            if (keyCode == GLFW.GLFW_KEY_M) { swapMode = (swapMode == 0) ? 1 : 0; return true; }
+            return super.keyPressed(keyCode, scanCode, modifiers);
+        }
+    }
+}
