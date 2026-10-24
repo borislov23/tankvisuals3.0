@@ -28,6 +28,9 @@ public class TankVisualsClient implements ClientModInitializer {
     public static boolean itemSwapEnabled = true;
     public static boolean elytraSwapEnabled = true;
 
+    // Режим свапа: 0 = "Тотем ⇄ Тотем", 1 = "Сфера/Голова ⇄ Тотем"
+    public static int swapMode = 0; 
+
     @Override
     public void onInitializeClient() {
         guiKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
@@ -78,7 +81,7 @@ public class TankVisualsClient implements ClientModInitializer {
             }
         });
 
-        // Слушатель нажатий
+        // Слушатель тиков
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client.player == null) return;
 
@@ -87,7 +90,7 @@ public class TankVisualsClient implements ClientModInitializer {
             }
 
             if (itemSwapEnabled && itemSwapKey.wasPressed()) {
-                performTotemHeadSwap(client);
+                performSmartSwap(client);
             }
 
             if (elytraSwapEnabled && elytraSwapKey.wasPressed()) {
@@ -96,18 +99,26 @@ public class TankVisualsClient implements ClientModInitializer {
         });
     }
 
-    private void performTotemHeadSwap(MinecraftClient client) {
+    private void performSmartSwap(MinecraftClient client) {
         if (client.interactionManager == null || client.player == null) return;
         int syncId = client.player.playerScreenHandler.syncId;
         ItemStack offhandStack = client.player.getOffHandStack();
 
-        // Поиск по всему инвентарю (включая хотбар)
-        if (!offhandStack.isOf(Items.TOTEM_OF_UNDYING)) {
+        if (swapMode == 0) {
+            // Режим 0: Тотем ⇄ Тотем (ставить тотем из инвентаря в левую руку)
             int totemSlot = findAnyItemSlot(client, Items.TOTEM_OF_UNDYING);
-            if (totemSlot != -1) swapSlotWithOffhand(client, syncId, totemSlot);
-        } else {
-            int headSlot = findAnyItemSlot(client, Items.PLAYER_HEAD);
-            if (headSlot != -1) swapSlotWithOffhand(client, syncId, headSlot);
+            if (totemSlot != -1) {
+                swapSlotWithOffhand(client, syncId, totemSlot);
+            }
+        } else if (swapMode == 1) {
+            // Режим 1: Сфера/Голова ⇄ Тотем
+            if (!offhandStack.isOf(Items.TOTEM_OF_UNDYING)) {
+                int totemSlot = findAnyItemSlot(client, Items.TOTEM_OF_UNDYING);
+                if (totemSlot != -1) swapSlotWithOffhand(client, syncId, totemSlot);
+            } else {
+                int headSlot = findAnyItemSlot(client, Items.PLAYER_HEAD);
+                if (headSlot != -1) swapSlotWithOffhand(client, syncId, headSlot);
+            }
         }
     }
 
@@ -115,7 +126,6 @@ public class TankVisualsClient implements ClientModInitializer {
         if (client.interactionManager == null || client.player == null) return;
         int syncId = client.player.playerScreenHandler.syncId;
         
-        // Слот нагрудника в инвентаре игрока = 6
         ItemStack chestStack = client.player.playerScreenHandler.getSlot(6).getStack();
 
         if (!chestStack.isOf(Items.ELYTRA)) {
@@ -131,9 +141,9 @@ public class TankVisualsClient implements ClientModInitializer {
         }
     }
 
-    // Ищет предмет по абсолютно всем слотам инвентаря
     private int findAnyItemSlot(MinecraftClient client, net.minecraft.item.Item item) {
         for (int i = 0; i < client.player.playerScreenHandler.slots.size(); i++) {
+            if (i == 45) continue; // Пропускаем левую руку
             if (client.player.playerScreenHandler.getSlot(i).getStack().isOf(item)) {
                 return i;
             }
@@ -172,9 +182,9 @@ public class TankVisualsClient implements ClientModInitializer {
         public void render(DrawContext context, int mouseX, int mouseY, float delta) {
             super.render(context, mouseX, mouseY, delta);
             int x = width / 2 - 130;
-            int y = height / 2 - 100;
+            int y = height / 2 - 110;
 
-            context.fill(x, y, x + 260, y + 200, 0xEE1A1A1A);
+            context.fill(x, y, x + 260, y + 220, 0xEE1A1A1A);
             context.fill(x, y, x + 260, y + 25, 0xEE2A2A2A);
             context.drawCenteredTextWithShadow(textRenderer, "TankVisuals // SoupVisuals Style", width / 2, y + 8, 0xFF55FF55);
 
@@ -184,7 +194,11 @@ public class TankVisualsClient implements ClientModInitializer {
             context.drawTextWithShadow(textRenderer, "[4] Item Swap (G): " + (itemSwapEnabled ? "ON" : "OFF"), x + 15, y + 110, itemSwapEnabled ? 0x55FF55 : 0xFF5555);
             context.drawTextWithShadow(textRenderer, "[5] Elytra Swap (V): " + (elytraSwapEnabled ? "ON" : "OFF"), x + 15, y + 135, elytraSwapEnabled ? 0x55FF55 : 0xFF5555);
 
-            context.drawTextWithShadow(textRenderer, "Нажми 1-5 для переключения", x + 15, y + 170, 0xAAAAAA);
+            // Переключатель режима
+            String modeStr = (swapMode == 0) ? "Тотем ⇄ Тотем" : "Сфера ⇄ Тотем";
+            context.drawTextWithShadow(textRenderer, "[M] Режим свапа: " + modeStr, x + 15, y + 165, 0xFFFF55);
+
+            context.drawTextWithShadow(textRenderer, "Нажми 1-5 или M для выбора", x + 15, y + 195, 0xAAAAAA);
         }
 
         @Override
@@ -194,6 +208,7 @@ public class TankVisualsClient implements ClientModInitializer {
             if (keyCode == GLFW.GLFW_KEY_3) { optimizationEnabled = !optimizationEnabled; return true; }
             if (keyCode == GLFW.GLFW_KEY_4) { itemSwapEnabled = !itemSwapEnabled; return true; }
             if (keyCode == GLFW.GLFW_KEY_5) { elytraSwapEnabled = !elytraSwapEnabled; return true; }
+            if (keyCode == GLFW.GLFW_KEY_M) { swapMode = (swapMode == 0) ? 1 : 0; return true; }
             return super.keyPressed(keyCode, scanCode, modifiers);
         }
     }
