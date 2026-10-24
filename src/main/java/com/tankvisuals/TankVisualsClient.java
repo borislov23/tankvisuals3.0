@@ -27,11 +27,9 @@ public class TankVisualsClient implements ClientModInitializer {
     public static boolean optimizationEnabled = true;
     public static boolean itemSwapEnabled = true;
     public static boolean elytraSwapEnabled = true;
+    public static boolean noMissEnabled = false; // Блокировка ударов по воздуху
 
-    // Режим свапа: 0 = "Тотем ⇄ Тотем", 1 = "Сфера/Голова ⇄ Тотем"
     public static int swapMode = 0; 
-
-    // Задержка свапа в тиках (по умолчанию 10 тиков = 0.5 сек). Меняется от 2 (0.1с) до 20 (1.0с)
     public static int swapDelayConfigTicks = 10;
 
     private static int currentDelayCounter = 0;
@@ -87,9 +85,21 @@ public class TankVisualsClient implements ClientModInitializer {
             }
         });
 
-        // Слушатель тиков с настраиваемой задержкой
+        // Слушатель тиков
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client.player == null) return;
+
+            // Логика NoMiss: если прицел НЕ на цели, сбрасываем нажатие атаки
+            if (noMissEnabled) {
+                boolean hasTarget = client.targetedEntity instanceof LivingEntity;
+                if (!hasTarget) {
+                    // Очищаем клики и сбрасываем нажатие
+                    while (client.options.attackKey.wasPressed()) {
+                        // Поглощаем нажатия в воздух
+                    }
+                    client.options.attackKey.setPressed(false);
+                }
+            }
 
             if (pendingSwap) {
                 if (currentDelayCounter > 0) {
@@ -106,7 +116,7 @@ public class TankVisualsClient implements ClientModInitializer {
 
             while (itemSwapEnabled && itemSwapKey.wasPressed()) {
                 if (!pendingSwap) {
-                    currentDelayCounter = swapDelayConfigTicks; // Берём выбранную задержку из настроек
+                    currentDelayCounter = swapDelayConfigTicks;
                     pendingSwap = true;
                 }
             }
@@ -198,9 +208,9 @@ public class TankVisualsClient implements ClientModInitializer {
         public void render(DrawContext context, int mouseX, int mouseY, float delta) {
             super.render(context, mouseX, mouseY, delta);
             int x = width / 2 - 130;
-            int y = height / 2 - 120;
+            int y = height / 2 - 130;
 
-            context.fill(x, y, x + 260, y + 240, 0xEE1A1A1A);
+            context.fill(x, y, x + 260, y + 260, 0xEE1A1A1A);
             context.fill(x, y, x + 260, y + 25, 0xEE2A2A2A);
             context.drawCenteredTextWithShadow(textRenderer, "TankVisuals // SoupVisuals Style", width / 2, y + 8, 0xFF55FF55);
 
@@ -213,11 +223,12 @@ public class TankVisualsClient implements ClientModInitializer {
             String modeStr = (swapMode == 0) ? "Тотем ⇄ Тотем" : "Сфера ⇄ Тотем";
             context.drawTextWithShadow(textRenderer, "[M] Режим свапа: " + modeStr, x + 15, y + 165, 0xFFFF55);
 
-            // Отображение текущей задержки в тиках и секундах
             double seconds = swapDelayConfigTicks * 0.05;
             context.drawTextWithShadow(textRenderer, "[6] Задержка: " + swapDelayConfigTicks + " тиков (" + seconds + " сек)", x + 15, y + 190, 0x55FFFF);
 
-            context.drawTextWithShadow(textRenderer, "1-5, M (режим), 6 (задержка)", x + 15, y + 215, 0xAAAAAA);
+            context.drawTextWithShadow(textRenderer, "[7] NoMiss (Блок кликов в воздух): " + (noMissEnabled ? "ON" : "OFF"), x + 15, y + 215, noMissEnabled ? 0x55FF55 : 0xFF5555);
+
+            context.drawTextWithShadow(textRenderer, "1-7, M (режим), 6 (задержка)", x + 15, y + 240, 0xAAAAAA);
         }
 
         @Override
@@ -227,8 +238,8 @@ public class TankVisualsClient implements ClientModInitializer {
             if (keyCode == GLFW.GLFW_KEY_3) { optimizationEnabled = !optimizationEnabled; return true; }
             if (keyCode == GLFW.GLFW_KEY_4) { itemSwapEnabled = !itemSwapEnabled; return true; }
             if (keyCode == GLFW.GLFW_KEY_5) { elytraSwapEnabled = !elytraSwapEnabled; return true; }
+            if (keyCode == GLFW.GLFW_KEY_7) { noMissEnabled = !noMissEnabled; return true; }
             if (keyCode == GLFW.GLFW_KEY_M) { swapMode = (swapMode == 0) ? 1 : 0; return true; }
-            // Кнопка 6 переключает задержку циклом: 2 (0.1с) -> 5 (0.25с) -> 10 (0.5с) -> 15 (0.75с) -> 20 (1.0с)
             if (keyCode == GLFW.GLFW_KEY_6) {
                 if (swapDelayConfigTicks == 2) swapDelayConfigTicks = 5;
                 else if (swapDelayConfigTicks == 5) swapDelayConfigTicks = 10;
