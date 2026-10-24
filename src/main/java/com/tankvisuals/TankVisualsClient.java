@@ -1,21 +1,30 @@
 package com.tankvisuals;
 
+import com.mojang.blaze3d.systems.RenderSystem;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
+import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.network.AbstractClientPlayerEntity;
 import net.minecraft.client.option.KeyBinding;
+import net.minecraft.client.render.*;
 import net.minecraft.client.util.InputUtil;
+import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.text.Text;
+import net.minecraft.util.hit.BlockHitResult;
+import net.minecraft.util.hit.HitResult;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Box;
+import net.minecraft.util.math.Vec3d;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.List;
@@ -37,7 +46,6 @@ public class TankVisualsClient implements ClientModInitializer {
 
     private static int currentDelayCounter = 0;
     private static boolean pendingSwap = false;
-
     public static boolean playerInRange = false;
 
     @Override
@@ -52,7 +60,70 @@ public class TankVisualsClient implements ClientModInitializer {
                 "key.tankvisuals.elytra", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_V, "category.tankvisuals"
         ));
 
-        // Рендер HUD и индикации зон предметов FunTime
+        // 3D Рендер зон в мире (как в Litematica)
+        WorldRenderEvents.LAST.register(context -> {
+            MinecraftClient client = MinecraftClient.getInstance();
+            if (!itemRadiusEnabled || client.player == null || client.world == null) return;
+
+            ItemStack mainHand = client.player.getMainHandStack();
+            MatrixStack matrices = context.matrixStack();
+            Vec3d cameraPos = context.camera().getPos();
+
+            matrices.push();
+            matrices.translate(-cameraPos.x, -cameraPos.y, -cameraPos.z);
+
+            RenderSystem.enableBlend();
+            RenderSystem.defaultBlendFunc();
+            RenderSystem.disableDepthTest();
+            RenderSystem.setShader(GameRenderer::getPositionColorProgram);
+
+            Tessellator tessellator = Tessellator.getInstance();
+            BufferBuilder buffer = tessellator.begin(VertexFormat.DrawMode.DEBUG_LINES, VertexFormats.POSITION_COLOR);
+
+            // 1. Дезориентация и Явная пыль (Око эндера / Сахар) -> Круг/Куб 10 блоков вокруг игрока
+            if (mainHand.isOf(Items.ENDER_EYE) || mainHand.isOf(Items.SUGAR)) {
+                Vec3d pos = client.player.getPos();
+                Box box = new Box(pos.x - 10, pos.y, pos.z - 10, pos.x + 10, pos.y + 3, pos.z + 10);
+                int col = playerInRange ? 0xFFFF0000 : 0xFFFFFFFF; // Красный если есть игрок, белый если нет
+                renderBoxOutlines(buffer, matrices, box, col);
+            }
+            // 2. Снежок заморозки (7 блоков в стороны, высота 3)
+            else if (mainHand.isOf(Items.SNOWBALL)) {
+                HitResult hit = client.crosshairTarget;
+                Vec3d targetPos = (hit != null && hit.getType() == HitResult.Type.BLOCK) ? hit.getPos() : client.player.getPos();
+                Box box = new Box(targetPos.x - 7, targetPos.y, targetPos.z - 7, targetPos.x + 7, targetPos.y + 3, targetPos.z + 7);
+                renderBoxOutlines(buffer, matrices, box, 0xFF55FFFF);
+            }
+            // 3. Огненный шар (5 блоков)
+            else if (mainHand.isOf(Items.FIRE_CHARGE)) {
+                HitResult hit = client.crosshairTarget;
+                Vec3d targetPos = (hit != null && hit.getType() == HitResult.Type.BLOCK) ? hit.getPos() : client.player.getPos();
+                Box box = new Box(targetPos.x - 5, targetPos.y, targetPos.z - 5, targetPos.x + 5, targetPos.y + 3, targetPos.z + 5);
+                renderBoxOutlines(buffer, matrices, box, 0xFFFF5555);
+            }
+            // 4. Трапка (Незеритовый лом) -> 5 блоков в высоту, по 2 блока в стороны (5x5x5)
+            else if (mainHand.isOf(Items.NETHERITE_SCRAP)) {
+                Vec3d pos = client.player.getPos();
+                Box box = new Box(pos.x - 2, pos.y, pos.z - 2, pos.x + 3, pos.y + 5, pos.z + 3);
+                renderBoxOutlines(buffer, matrices, box, 0xFFFFAAAA);
+            }
+            // 5. Пласт (Сушеная ламинария) -> Стена от центра по 2 блока вверх, вниз, вправо, влево
+            else if (mainHand.isOf(Items.DRIED_KELP)) {
+                HitResult hit = client.crosshairTarget;
+                if (hit instanceof BlockHitResult blockHit) {
+                    BlockPos bp = blockHit.getBlockPos();
+                    Box box = new Box(bp.getX() - 2, bp.getY() - 2, bp.getZ() - 2, bp.getX() + 3, bp.getY() + 3, bp.getZ() + 3);
+                    renderBoxOutlines(buffer, matrices, box, 0xFFFFAA55);
+                }
+            }
+
+            BufferRenderer.drawWithShader(buffer.end());
+            RenderSystem.enableDepthTest();
+            RenderSystem.disableBlend();
+            matrices.pop();
+        });
+
+        // 2D HUD интерфейс
         HudRenderCallback.EVENT.register((context, tickCounter) -> {
             MinecraftClient client = MinecraftClient.getInstance();
             if (client == null || client.player == null) return;
@@ -67,25 +138,22 @@ public class TankVisualsClient implements ClientModInitializer {
                 context.drawTextWithShadow(client.textRenderer, infoText, 10, 10, 0x00FF66);
             }
 
-            // Индикация предметов в руке
             if (itemRadiusEnabled) {
                 ItemStack mainHand = client.player.getMainHandStack();
                 int color = playerInRange ? 0xFFFF0000 : 0xFFFFFFFF;
 
                 if (mainHand.isOf(Items.ENDER_EYE)) {
-                    String status = playerInRange ? "В РАДИУСЕ (10б)!" : "Поиск целей...";
-                    context.drawTextWithShadow(client.textRenderer, "[Дезориентация] " + status, 10, 25, color);
+                    context.drawTextWithShadow(client.textRenderer, "[Дезориентация] " + (playerInRange ? "ЦЕЛЬ В РАДИУСЕ!" : "Поиск..."), 10, 25, color);
                 } else if (mainHand.isOf(Items.SUGAR)) {
-                    String status = playerInRange ? "В РАДИУСЕ (10б)!" : "Поиск целей...";
-                    context.drawTextWithShadow(client.textRenderer, "[Явная пыль] " + status, 10, 25, color);
+                    context.drawTextWithShadow(client.textRenderer, "[Явная пыль] " + (playerInRange ? "ЦЕЛЬ В РАДИУСЕ!" : "Поиск..."), 10, 25, color);
                 } else if (mainHand.isOf(Items.SNOWBALL)) {
-                    context.drawTextWithShadow(client.textRenderer, "[Снежок Заморозки] Зона: 7б (высота 3б)", 10, 25, 0x55FFFF);
+                    context.drawTextWithShadow(client.textRenderer, "[Снежок Заморозки] Зона 3D активна", 10, 25, 0x55FFFF);
                 } else if (mainHand.isOf(Items.FIRE_CHARGE)) {
-                    context.drawTextWithShadow(client.textRenderer, "[Огненный Шар] Зона поражения: 5 блоков", 10, 25, 0xFF5555);
+                    context.drawTextWithShadow(client.textRenderer, "[Огненный Шар] Зона 3D активна", 10, 25, 0xFF5555);
                 } else if (mainHand.isOf(Items.NETHERITE_SCRAP)) {
-                    context.drawTextWithShadow(client.textRenderer, "[Трапка] Зона: 5 блоков в высоту, по 2б в стороны", 10, 25, 0xFFAAAA);
-                } else if (mainHand.isOf(Items.BRICK)) {
-                    context.drawTextWithShadow(client.textRenderer, "[Пласт] Стена: по 2б вверх/вниз/вправо/влево", 10, 25, 0xFFAA55);
+                    context.drawTextWithShadow(client.textRenderer, "[Трапка] 3D Куб 5x5x5", 10, 25, 0xFFAAAA);
+                } else if (mainHand.isOf(Items.DRIED_KELP)) {
+                    context.drawTextWithShadow(client.textRenderer, "[Пласт] 3D Стена ламинарии активна", 10, 25, 0xFFAA55);
                 }
             }
 
@@ -102,7 +170,6 @@ public class TankVisualsClient implements ClientModInitializer {
                     if (name.length() > 15) name = name.substring(0, 12) + "...";
                     
                     context.drawTextWithShadow(client.textRenderer, name, x + 5, y + 5, 0xFFFFFF);
-                    
                     float health = living.getHealth();
                     float maxHealth = living.getMaxHealth();
                     int healthBarWidth = (int) ((health / maxHealth) * 110);
@@ -119,12 +186,10 @@ public class TankVisualsClient implements ClientModInitializer {
                 ItemStack mainHand = client.player.getMainHandStack();
                 if (mainHand.isOf(Items.ENDER_EYE) || mainHand.isOf(Items.SUGAR)) {
                     boolean foundPlayer = false;
-                    // Исправлен тип списка на AbstractClientPlayerEntity
                     List<AbstractClientPlayerEntity> players = client.world.getPlayers();
                     for (AbstractClientPlayerEntity p : players) {
                         if (p != client.player && !p.isSpectator()) {
-                            double distance = client.player.distanceTo(p);
-                            if (distance <= 10.0) {
+                            if (client.player.distanceTo(p) <= 10.0) {
                                 foundPlayer = true;
                                 break;
                             }
@@ -137,17 +202,14 @@ public class TankVisualsClient implements ClientModInitializer {
             }
 
             if (pendingSwap) {
-                if (currentDelayCounter > 0) {
-                    currentDelayCounter--;
-                } else {
+                if (currentDelayCounter > 0) currentDelayCounter--;
+                else {
                     performSmartSwap(client);
                     pendingSwap = false;
                 }
             }
 
-            if (guiKey.wasPressed()) {
-                client.setScreen(new SoupGuiScreen());
-            }
+            if (guiKey.wasPressed()) client.setScreen(new SoupGuiScreen());
 
             while (itemSwapEnabled && itemSwapKey.wasPressed()) {
                 if (!pendingSwap) {
@@ -162,6 +224,15 @@ public class TankVisualsClient implements ClientModInitializer {
         });
     }
 
+    private void renderBoxOutlines(BufferBuilder buffer, MatrixStack matrices, Box box, int color) {
+        float a = ((color >> 24) & 0xFF) / 255.0f;
+        float r = ((color >> 16) & 0xFF) / 255.0f;
+        float g = ((color >> 8) & 0xFF) / 255.0f;
+        float b = (color & 0xFF) / 255.0f;
+
+        WorldRenderer.drawBox(matrices, buffer, box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ, r, g, b, a);
+    }
+
     private void performSmartSwap(MinecraftClient client) {
         if (client.interactionManager == null || client.player == null) return;
         int syncId = client.player.playerScreenHandler.syncId;
@@ -169,9 +240,7 @@ public class TankVisualsClient implements ClientModInitializer {
 
         if (swapMode == 0) {
             int totemSlot = findAnyItemSlot(client, Items.TOTEM_OF_UNDYING);
-            if (totemSlot != -1) {
-                swapSlotWithOffhand(client, syncId, totemSlot);
-            }
+            if (totemSlot != -1) swapSlotWithOffhand(client, syncId, totemSlot);
         } else if (swapMode == 1) {
             if (!offhandStack.isOf(Items.TOTEM_OF_UNDYING)) {
                 int totemSlot = findAnyItemSlot(client, Items.TOTEM_OF_UNDYING);
@@ -186,28 +255,21 @@ public class TankVisualsClient implements ClientModInitializer {
     private void performElytraSwap(MinecraftClient client) {
         if (client.interactionManager == null || client.player == null) return;
         int syncId = client.player.playerScreenHandler.syncId;
-        
         ItemStack chestStack = client.player.playerScreenHandler.getSlot(6).getStack();
 
         if (!chestStack.isOf(Items.ELYTRA)) {
             int elytraSlot = findAnyItemSlot(client, Items.ELYTRA);
-            if (elytraSlot != -1) {
-                swapArmorSlot(client, syncId, elytraSlot, 6);
-            }
+            if (elytraSlot != -1) swapArmorSlot(client, syncId, elytraSlot, 6);
         } else {
             int chestplateSlot = findChestplateSlot(client);
-            if (chestplateSlot != -1) {
-                swapArmorSlot(client, syncId, chestplateSlot, 6);
-            }
+            if (chestplateSlot != -1) swapArmorSlot(client, syncId, chestplateSlot, 6);
         }
     }
 
     private int findAnyItemSlot(MinecraftClient client, net.minecraft.item.Item item) {
         for (int i = 0; i < client.player.playerScreenHandler.slots.size(); i++) {
             if (i == 45) continue;
-            if (client.player.playerScreenHandler.getSlot(i).getStack().isOf(item)) {
-                return i;
-            }
+            if (client.player.playerScreenHandler.getSlot(i).getStack().isOf(item)) return i;
         }
         return -1;
     }
@@ -215,9 +277,7 @@ public class TankVisualsClient implements ClientModInitializer {
     private int findChestplateSlot(MinecraftClient client) {
         for (int i = 0; i < client.player.playerScreenHandler.slots.size(); i++) {
             ItemStack stack = client.player.playerScreenHandler.getSlot(i).getStack();
-            if (stack.getItem().toString().contains("chestplate")) {
-                return i;
-            }
+            if (stack.getItem().toString().contains("chestplate")) return i;
         }
         return -1;
     }
@@ -251,7 +311,7 @@ public class TankVisualsClient implements ClientModInitializer {
 
             context.drawTextWithShadow(textRenderer, "[1] Player HUD: " + (hudEnabled ? "ON" : "OFF"), x + 15, y + 35, hudEnabled ? 0x55FF55 : 0xFF5555);
             context.drawTextWithShadow(textRenderer, "[2] Target HUD: " + (targetHudEnabled ? "ON" : "OFF"), x + 15, y + 60, targetHudEnabled ? 0x55FF55 : 0xFF5555);
-            context.drawTextWithShadow(textRenderer, "[3] Item Radius Overlay: " + (itemRadiusEnabled ? "ON" : "OFF"), x + 15, y + 85, itemRadiusEnabled ? 0x55FF55 : 0xFF5555);
+            context.drawTextWithShadow(textRenderer, "[3] 3D World Render: " + (itemRadiusEnabled ? "ON" : "OFF"), x + 15, y + 85, itemRadiusEnabled ? 0x55FF55 : 0xFF5555);
             context.drawTextWithShadow(textRenderer, "[4] Item Swap (G): " + (itemSwapEnabled ? "ON" : "OFF"), x + 15, y + 110, itemSwapEnabled ? 0x55FF55 : 0xFF5555);
             context.drawTextWithShadow(textRenderer, "[5] Elytra Swap (V): " + (elytraSwapEnabled ? "ON" : "OFF"), x + 15, y + 135, elytraSwapEnabled ? 0x55FF55 : 0xFF5555);
 
