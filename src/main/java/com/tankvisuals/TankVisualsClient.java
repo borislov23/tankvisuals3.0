@@ -61,7 +61,7 @@ public class TankVisualsClient implements ClientModInitializer {
                 "key.tankvisuals.elytra", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_V, "category.tankvisuals"
         ));
 
-        // 3D Рендер зон в мире (как в Litematica)
+        // 3D Рендер зон в мире
         WorldRenderEvents.LAST.register(context -> {
             MinecraftClient client = MinecraftClient.getInstance();
             if (!itemRadiusEnabled || client.player == null || client.world == null) return;
@@ -76,7 +76,6 @@ public class TankVisualsClient implements ClientModInitializer {
             RenderSystem.enableBlend();
             RenderSystem.defaultBlendFunc();
             RenderSystem.disableDepthTest();
-            RenderSystem.setShader(GameRenderer::getPositionColorProgram);
 
             Tessellator tessellator = Tessellator.getInstance();
             BufferBuilder buffer = tessellator.begin(VertexFormat.DrawMode.DEBUG_LINES, VertexFormats.POSITION_COLOR);
@@ -85,7 +84,7 @@ public class TankVisualsClient implements ClientModInitializer {
             if (mainHand.isOf(Items.ENDER_EYE) || mainHand.isOf(Items.SUGAR)) {
                 Vec3d pos = client.player.getPos();
                 Box box = new Box(pos.x - 10, pos.y, pos.z - 10, pos.x + 10, pos.y + 3, pos.z + 10);
-                int col = playerInRange ? 0xFFFF0000 : 0xFFFFFFFF; // Красный если есть игрок, белый если нет
+                int col = playerInRange ? 0xFFFF0000 : 0xFFFFFFFF;
                 drawBoxLines(buffer, matrices, box, col);
             }
             // 2. Снежок заморозки (7 блоков в стороны, высота 3)
@@ -102,7 +101,7 @@ public class TankVisualsClient implements ClientModInitializer {
                 Box box = new Box(targetPos.x - 5, targetPos.y, targetPos.z - 5, targetPos.x + 5, targetPos.y + 3, targetPos.z + 5);
                 drawBoxLines(buffer, matrices, box, 0xFFFF5555);
             }
-            // 4. Трапка (Незеритовый лом) -> 5 блоков в высоту, по 2 блока в стороны (5x5x5)
+            // 4. Трапка (Незеритовый лом) -> 5 блоков в высоту, по 2 блока в стороны
             else if (mainHand.isOf(Items.NETHERITE_SCRAP)) {
                 Vec3d pos = client.player.getPos();
                 Box box = new Box(pos.x - 2, pos.y, pos.z - 2, pos.x + 3, pos.y + 5, pos.z + 3);
@@ -216,7 +215,6 @@ public class TankVisualsClient implements ClientModInitializer {
         double x1 = box.minX, y1 = box.minY, z1 = box.minZ;
         double x2 = box.maxX, y2 = box.maxY, z2 = box.maxZ;
 
-        // 12 ребер куба
         drawLine(buffer, matrix, x1, y1, z1, x2, y1, z1, r, g, b, a);
         drawLine(buffer, matrix, x2, y1, z1, x2, y1, z2, r, g, b, a);
         drawLine(buffer, matrix, x2, y1, z2, x1, y1, z2, r, g, b, a);
@@ -315,7 +313,7 @@ public class TankVisualsClient implements ClientModInitializer {
             context.drawCenteredTextWithShadow(textRenderer, "TankVisuals // SoupVisuals Style", width / 2, y + 8, 0xFF55FF55);
 
             context.drawTextWithShadow(textRenderer, "[1] Player HUD: " + (hudEnabled ? "ON" : "OFF"), x + 15, y + 35, hudEnabled ? 0x55FF55 : 0xFF5555);
-            context.drawTextWithShadow(textRenderer, "[2] Target HUD: " + (targetHudEditorEnabled() ? "ON" : "OFF"), x + 15, y + 60, targetHudEnabled ? 0x55FF55 : 0xFF5555);
+            context.drawTextWithShadow(textRenderer, "[2] Target HUD: " + (targetHudEnabled ? "ON" : "OFF"), x + 15, y + 60, targetHudEnabled ? 0x55FF55 : 0xFF5555);
             context.drawTextWithShadow(textRenderer, "[3] 3D World Render: " + (itemRadiusEnabled ? "ON" : "OFF"), x + 15, y + 85, itemRadiusEnabled ? 0x55FF55 : 0xFF5555);
             context.drawTextWithShadow(textRenderer, "[4] Item Swap (G): " + (itemSwapEnabled ? "ON" : "OFF"), x + 15, y + 110, itemSwapEnabled ? 0x55FF55 : 0xFF5555);
             context.drawTextWithShadow(textRenderer, "[5] Elytra Swap (V): " + (elytraSwapEnabled ? "ON" : "OFF"), x + 15, y + 135, elytraSwapEnabled ? 0x55FF55 : 0xFF5555);
@@ -327,10 +325,6 @@ public class TankVisualsClient implements ClientModInitializer {
             context.drawTextWithShadow(textRenderer, "[6] Задержка: " + swapDelayConfigTicks + " тиков (" + seconds + " сек)", x + 15, y + 190, 0x55FFFF);
 
             context.drawTextWithShadow(textRenderer, "1-5, M (режим), 6 (задержка)", x + 15, y + 225, 0xAAAAAA);
-        }
-
-        private boolean targetHudEditorEnabled() {
-            return targetHudEnabled;
         }
 
         @Override
