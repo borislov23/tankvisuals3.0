@@ -11,12 +11,14 @@ import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
-import net.minecraft.item.SwordItem;
 import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
+
+import java.util.List;
 
 public class TankVisualsClient implements ClientModInitializer {
     public static KeyBinding guiKey;
@@ -28,13 +30,15 @@ public class TankVisualsClient implements ClientModInitializer {
     public static boolean optimizationEnabled = true;
     public static boolean itemSwapEnabled = true;
     public static boolean elytraSwapEnabled = true;
-    public static boolean noMissEnabled = false; // NoMiss только для меча и булавы
+    public static boolean itemRadiusEnabled = true;
 
     public static int swapMode = 0; 
     public static int swapDelayConfigTicks = 10;
 
     private static int currentDelayCounter = 0;
     private static boolean pendingSwap = false;
+
+    public static boolean playerInRange = false;
 
     @Override
     public void onInitializeClient() {
@@ -48,7 +52,7 @@ public class TankVisualsClient implements ClientModInitializer {
                 "key.tankvisuals.elytra", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_V, "category.tankvisuals"
         ));
 
-        // Отрисовка HUD
+        // Рендер HUD и индикации зон предметов FunTime
         HudRenderCallback.EVENT.register((context, tickCounter) -> {
             MinecraftClient client = MinecraftClient.getInstance();
             if (client == null || client.player == null) return;
@@ -61,6 +65,28 @@ public class TankVisualsClient implements ClientModInitializer {
                 }
                 String infoText = "TankVisuals | FPS: " + fps + " | Ping: " + ping + "ms";
                 context.drawTextWithShadow(client.textRenderer, infoText, 10, 10, 0x00FF66);
+            }
+
+            // Индикация предметов в руке
+            if (itemRadiusEnabled) {
+                ItemStack mainHand = client.player.getMainHandStack();
+                int color = playerInRange ? 0xFFFF0000 : 0xFFFFFFFF;
+
+                if (mainHand.isOf(Items.ENDER_EYE)) {
+                    String status = playerInRange ? "В РАДИУСЕ (10б)!" : "Поиск целей...";
+                    context.drawTextWithShadow(client.textRenderer, "[Дезориентация] " + status, 10, 25, color);
+                } else if (mainHand.isOf(Items.SUGAR)) {
+                    String status = playerInRange ? "В РАДИУСЕ (10б)!" : "Поиск целей...";
+                    context.drawTextWithShadow(client.textRenderer, "[Явная пыль] " + status, 10, 25, color);
+                } else if (mainHand.isOf(Items.SNOWBALL)) {
+                    context.drawTextWithShadow(client.textRenderer, "[Снежок Заморозки] Зона: 7б (высота 3б)", 10, 25, 0x55FFFF);
+                } else if (mainHand.isOf(Items.FIRE_CHARGE)) {
+                    context.drawTextWithShadow(client.textRenderer, "[Огненный Шар] Зона поражения: 5 блоков", 10, 25, 0xFF5555);
+                } else if (mainHand.isOf(Items.NETHERITE_SCRAP)) { // Трапка (незеритовый лом)
+                    context.drawTextWithShadow(client.textRenderer, "[Трапка] Зона: 5 блоков в высоту, по 2б в стороны", 10, 25, 0xFFAAAA);
+                } else if (mainHand.isOf(Items.BRICK)) { // Пласт (можно заменить предмет под себя, например кирпич)
+                    context.drawTextWithShadow(client.textRenderer, "[Пласт] Стена: по 2б вверх/вниз/вправо/влево", 10, 25, 0xFFAA55);
+                }
             }
 
             if (targetHudEnabled) {
@@ -86,20 +112,26 @@ public class TankVisualsClient implements ClientModInitializer {
             }
         });
 
-        // Слушатель тиков
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            if (client.player == null) return;
+            if (client.player == null || client.world == null) return;
 
-            // Логика NoMiss: работает ТОЛЬКО если в руке меч или булава, а цели нет
-            if (noMissEnabled) {
+            if (itemRadiusEnabled) {
                 ItemStack mainHand = client.player.getMainHandStack();
-                boolean isSwordOrMace = (mainHand.getItem() instanceof SwordItem) || mainHand.isOf(Items.MACE);
-                
-                if (isSwordOrMace) {
-                    boolean hasTarget = client.targetedEntity instanceof LivingEntity;
-                    if (!hasTarget) {
-                        client.options.attackKey.setPressed(false);
+                if (mainHand.isOf(Items.ENDER_EYE) || mainHand.isOf(Items.SUGAR)) {
+                    boolean foundPlayer = false;
+                    List<PlayerEntity> players = client.world.getPlayers();
+                    for (PlayerEntity p : players) {
+                        if (p != client.player && !p.isSpectator()) {
+                            double distance = client.player.distanceTo(p);
+                            if (distance <= 10.0) {
+                                foundPlayer = true;
+                                break;
+                            }
+                        }
                     }
+                    playerInRange = foundPlayer;
+                } else {
+                    playerInRange = false;
                 }
             }
 
@@ -218,7 +250,7 @@ public class TankVisualsClient implements ClientModInitializer {
 
             context.drawTextWithShadow(textRenderer, "[1] Player HUD: " + (hudEnabled ? "ON" : "OFF"), x + 15, y + 35, hudEnabled ? 0x55FF55 : 0xFF5555);
             context.drawTextWithShadow(textRenderer, "[2] Target HUD: " + (targetHudEnabled ? "ON" : "OFF"), x + 15, y + 60, targetHudEnabled ? 0x55FF55 : 0xFF5555);
-            context.drawTextWithShadow(textRenderer, "[3] Optimization: " + (optimizationEnabled ? "ON" : "OFF"), x + 15, y + 85, optimizationEnabled ? 0x55FF55 : 0xFF5555);
+            context.drawTextWithShadow(textRenderer, "[3] Item Radius Overlay: " + (itemRadiusEnabled ? "ON" : "OFF"), x + 15, y + 85, itemRadiusEnabled ? 0x55FF55 : 0xFF5555);
             context.drawTextWithShadow(textRenderer, "[4] Item Swap (G): " + (itemSwapEnabled ? "ON" : "OFF"), x + 15, y + 110, itemSwapEnabled ? 0x55FF55 : 0xFF5555);
             context.drawTextWithShadow(textRenderer, "[5] Elytra Swap (V): " + (elytraSwapEnabled ? "ON" : "OFF"), x + 15, y + 135, elytraSwapEnabled ? 0x55FF55 : 0xFF5555);
 
@@ -228,19 +260,16 @@ public class TankVisualsClient implements ClientModInitializer {
             double seconds = swapDelayConfigTicks * 0.05;
             context.drawTextWithShadow(textRenderer, "[6] Задержка: " + swapDelayConfigTicks + " тиков (" + seconds + " сек)", x + 15, y + 190, 0x55FFFF);
 
-            context.drawTextWithShadow(textRenderer, "[7] NoMiss (Меч/Булава): " + (noMissEnabled ? "ON" : "OFF"), x + 15, y + 215, noMissEnabled ? 0x55FF55 : 0xFF5555);
-
-            context.drawTextWithShadow(textRenderer, "1-7, M (режим), 6 (задержка)", x + 15, y + 240, 0xAAAAAA);
+            context.drawTextWithShadow(textRenderer, "1-5, M (режим), 6 (задержка)", x + 15, y + 225, 0xAAAAAA);
         }
 
         @Override
         public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
             if (keyCode == GLFW.GLFW_KEY_1) { hudEnabled = !hudEnabled; return true; }
             if (keyCode == GLFW.GLFW_KEY_2) { targetHudEnabled = !targetHudEnabled; return true; }
-            if (keyCode == GLFW.GLFW_KEY_3) { optimizationEnabled = !optimizationEnabled; return true; }
+            if (keyCode == GLFW.GLFW_KEY_3) { itemRadiusEnabled = !itemRadiusEnabled; return true; }
             if (keyCode == GLFW.GLFW_KEY_4) { itemSwapEnabled = !itemSwapEnabled; return true; }
             if (keyCode == GLFW.GLFW_KEY_5) { elytraSwapEnabled = !elytraSwapEnabled; return true; }
-            if (keyCode == GLFW.GLFW_KEY_7) { noMissEnabled = !noMissEnabled; return true; }
             if (keyCode == GLFW.GLFW_KEY_M) { swapMode = (swapMode == 0) ? 1 : 0; return true; }
             if (keyCode == GLFW.GLFW_KEY_6) {
                 if (swapDelayConfigTicks == 2) swapDelayConfigTicks = 5;
