@@ -1,6 +1,5 @@
 package com.tankvisuals;
 
-import com.mojang.blaze3d.systems.RenderSystem;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
@@ -11,7 +10,9 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.network.AbstractClientPlayerEntity;
 import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.render.*;
+import net.minecraft.client.render.RenderLayer;
+import net.minecraft.client.render.VertexConsumer;
+import net.minecraft.client.render.VertexConsumerProvider;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.entity.Entity;
@@ -62,13 +63,12 @@ public class TankVisualsClient implements ClientModInitializer {
         ));
 
         // 3D Рендер зон в мире
-        WorldRenderEvents.LAST.register(context -> {
+        WorldRenderEvents.AFTER_TRANSLUCENT.register(context -> {
             MinecraftClient client = MinecraftClient.getInstance();
             if (!itemRadiusEnabled || client.player == null || client.world == null) return;
 
             ItemStack mainHand = client.player.getMainHandStack();
             
-            // Проверяем, держит ли игрок нужный предмет, чтобы не создавать пустой буфер
             boolean shouldRender = mainHand.isOf(Items.ENDER_EYE) || 
                                    mainHand.isOf(Items.SUGAR) || 
                                    mainHand.isOf(Items.SNOWBALL) || 
@@ -78,59 +78,53 @@ public class TankVisualsClient implements ClientModInitializer {
             
             if (!shouldRender) return;
 
+            VertexConsumerProvider consumers = context.consumers();
+            if (consumers == null) return;
+
+            VertexConsumer buffer = consumers.getBuffer(RenderLayer.getLines());
             MatrixStack matrices = context.matrixStack();
             Vec3d cameraPos = context.camera().getPos();
 
             matrices.push();
             matrices.translate(-cameraPos.x, -cameraPos.y, -cameraPos.z);
 
-            RenderSystem.enableBlend();
-            RenderSystem.defaultBlendFunc();
-            RenderSystem.disableDepthTest();
-
-            Tessellator tessellator = Tessellator.getInstance();
-            BufferBuilder buffer = tessellator.begin(VertexFormat.DrawMode.DEBUG_LINES, VertexFormats.POSITION_COLOR);
-
-            // 1. Дезориентация и Явная пыль (Око эндера / Сахар) -> 10 блоков вокруг игрока
+            // 1. Дезориентация / Явная пыль (10б)
             if (mainHand.isOf(Items.ENDER_EYE) || mainHand.isOf(Items.SUGAR)) {
                 Vec3d pos = client.player.getPos();
                 Box box = new Box(pos.x - 10, pos.y, pos.z - 10, pos.x + 10, pos.y + 3, pos.z + 10);
                 int col = playerInRange ? 0xFFFF0000 : 0xFFFFFFFF;
-                drawBoxLines(buffer, matrices, box, col);
+                draw3dBox(buffer, matrices, box, col);
             }
-            // 2. Снежок заморозки (7 блоков в стороны, высота 3)
+            // 2. Снежок заморозки (7б)
             else if (mainHand.isOf(Items.SNOWBALL)) {
                 HitResult hit = client.crosshairTarget;
                 Vec3d targetPos = (hit != null && hit.getType() == HitResult.Type.BLOCK) ? hit.getPos() : client.player.getPos();
                 Box box = new Box(targetPos.x - 7, targetPos.y, targetPos.z - 7, targetPos.x + 7, targetPos.y + 3, targetPos.z + 7);
-                drawBoxLines(buffer, matrices, box, 0xFF55FFFF);
+                draw3dBox(buffer, matrices, box, 0xFF55FFFF);
             }
-            // 3. Огненный шар (5 блоков)
+            // 3. Огненный шар (5б)
             else if (mainHand.isOf(Items.FIRE_CHARGE)) {
                 HitResult hit = client.crosshairTarget;
                 Vec3d targetPos = (hit != null && hit.getType() == HitResult.Type.BLOCK) ? hit.getPos() : client.player.getPos();
                 Box box = new Box(targetPos.x - 5, targetPos.y, targetPos.z - 5, targetPos.x + 5, targetPos.y + 3, targetPos.z + 5);
-                drawBoxLines(buffer, matrices, box, 0xFFFF5555);
+                draw3dBox(buffer, matrices, box, 0xFFFF5555);
             }
-            // 4. Трапка (Незеритовый лом) -> 5 блоков в высоту, по 2 блока в стороны
+            // 4. Трапка (Незеритовый лом) -> 5 блоков вверх, 2б в стороны
             else if (mainHand.isOf(Items.NETHERITE_SCRAP)) {
                 Vec3d pos = client.player.getPos();
                 Box box = new Box(pos.x - 2, pos.y, pos.z - 2, pos.x + 3, pos.y + 5, pos.z + 3);
-                drawBoxLines(buffer, matrices, box, 0xFFFFAAAA);
+                draw3dBox(buffer, matrices, box, 0xFFFFAAAA);
             }
-            // 5. Пласт (Сушеная ламинария) -> Стена от центра по 2 блока вверх, вниз, вправо, влево
+            // 5. Пласт (Сушеная ламинария)
             else if (mainHand.isOf(Items.DRIED_KELP)) {
                 HitResult hit = client.crosshairTarget;
                 if (hit instanceof BlockHitResult blockHit) {
                     BlockPos bp = blockHit.getBlockPos();
                     Box box = new Box(bp.getX() - 2, bp.getY() - 2, bp.getZ() - 2, bp.getX() + 3, bp.getY() + 3, bp.getZ() + 3);
-                    drawBoxLines(buffer, matrices, box, 0xFFFFAA55);
+                    draw3dBox(buffer, matrices, box, 0xFFFFAA55);
                 }
             }
 
-            BufferRenderer.drawWithGlobalProgram(buffer.end());
-            RenderSystem.enableDepthTest();
-            RenderSystem.disableBlend();
             matrices.pop();
         });
 
@@ -216,35 +210,38 @@ public class TankVisualsClient implements ClientModInitializer {
         });
     }
 
-    private void drawBoxLines(BufferBuilder buffer, MatrixStack matrices, Box box, int color) {
+    private void draw3dBox(VertexConsumer buffer, MatrixStack matrices, Box box, int color) {
         float a = ((color >> 24) & 0xFF) / 255.0f;
         float r = ((color >> 16) & 0xFF) / 255.0f;
         float g = ((color >> 8) & 0xFF) / 255.0f;
         float b = (color & 0xFF) / 255.0f;
 
         Matrix4f matrix = matrices.peek().getPositionMatrix();
-        double x1 = box.minX, y1 = box.minY, z1 = box.minZ;
-        double x2 = box.maxX, y2 = box.maxY, z2 = box.maxZ;
+        float x1 = (float) box.minX, y1 = (float) box.minY, z1 = (float) box.minZ;
+        float x2 = (float) box.maxX, y2 = (float) box.maxY, z2 = (float) box.maxZ;
 
-        drawLine(buffer, matrix, x1, y1, z1, x2, y1, z1, r, g, b, a);
-        drawLine(buffer, matrix, x2, y1, z1, x2, y1, z2, r, g, b, a);
-        drawLine(buffer, matrix, x2, y1, z2, x1, y1, z2, r, g, b, a);
-        drawLine(buffer, matrix, x1, y1, z2, x1, y1, z1, r, g, b, a);
+        // Нижний контур
+        line(buffer, matrix, x1, y1, z1, x2, y1, z1, r, g, b, a);
+        line(buffer, matrix, x2, y1, z1, x2, y1, z2, r, g, b, a);
+        line(buffer, matrix, x2, y1, z2, x1, y1, z2, r, g, b, a);
+        line(buffer, matrix, x1, y1, z2, x1, y1, z1, r, g, b, a);
 
-        drawLine(buffer, matrix, x1, y2, z1, x2, y2, z1, r, g, b, a);
-        drawLine(buffer, matrix, x2, y2, z1, x2, y2, z2, r, g, b, a);
-        drawLine(buffer, matrix, x2, y2, z2, x1, y2, z2, r, g, b, a);
-        drawLine(buffer, matrix, x1, y2, z2, x1, y2, z1, r, g, b, a);
+        // Верхний контур
+        line(buffer, matrix, x1, y2, z1, x2, y2, z1, r, g, b, a);
+        line(buffer, matrix, x2, y2, z1, x2, y2, z2, r, g, b, a);
+        line(buffer, matrix, x2, y2, z2, x1, y2, z2, r, g, b, a);
+        line(buffer, matrix, x1, y2, z2, x1, y2, z1, r, g, b, a);
 
-        drawLine(buffer, matrix, x1, y1, z1, x1, y2, z1, r, g, b, a);
-        drawLine(buffer, matrix, x2, y1, z1, x2, y2, z1, r, g, b, a);
-        drawLine(buffer, matrix, x2, y1, z2, x2, y2, z2, r, g, b, a);
-        drawLine(buffer, matrix, x1, y1, z2, x1, y2, z2, r, g, b, a);
+        // Вертикальные стойки
+        line(buffer, matrix, x1, y1, z1, x1, y2, z1, r, g, b, a);
+        line(buffer, matrix, x2, y1, z1, x2, y2, z1, r, g, b, a);
+        line(buffer, matrix, x2, y1, z2, x2, y2, z2, r, g, b, a);
+        line(buffer, matrix, x1, y1, z2, x1, y2, z2, r, g, b, a);
     }
 
-    private void drawLine(BufferBuilder buffer, Matrix4f matrix, double x1, double y1, double z1, double x2, double y2, double z2, float r, float g, float b, float a) {
-        buffer.vertex(matrix, (float) x1, (float) y1, (float) z1).color(r, g, b, a);
-        buffer.vertex(matrix, (float) x2, (float) y2, (float) z2).color(r, g, b, a);
+    private void line(VertexConsumer buffer, Matrix4f matrix, float x1, float y1, float z1, float x2, float y2, float z2, float r, float g, float b, float a) {
+        buffer.vertex(matrix, x1, y1, z1).color(r, g, b, a).normal(0, 1, 0);
+        buffer.vertex(matrix, x2, y2, z2).color(r, g, b, a).normal(0, 1, 0);
     }
 
     private void performSmartSwap(MinecraftClient client) {
@@ -317,29 +314,31 @@ public class TankVisualsClient implements ClientModInitializer {
         public void render(DrawContext context, int mouseX, int mouseY, float delta) {
             super.render(context, mouseX, mouseY, delta);
             int x = width / 2 - 130;
-            int y = height / 2 - 130;
+            int y = height / 2 - 140;
 
-            context.fill(x, y, x + 260, y + 260, 0xEE1A1A1A);
+            context.fill(x, y, x + 260, y + 280, 0xEE1A1A1A);
             context.fill(x, y, x + 260, y + 25, 0xEE2A2A2A);
             context.drawCenteredTextWithShadow(textRenderer, "TankVisuals // SoupVisuals Style", width / 2, y + 8, 0xFF55FF55);
 
-            context.drawTextWithShadow(textRenderer, "[1] Player HUD: " + (hudEnabled ? "ON" : "OFF"), x + 15, y + 35, hudEnabled ? 0x55FF55 : 0xFF5555);
-            context.drawTextWithShadow(textRenderer, "[2] Target HUD: " + (targetHudEnabled ? "ON" : "OFF"), x + 15, y + 60, targetHudEnabled ? 0x55FF55 : 0xFF5555);
-            context.drawTextWithShadow(textRenderer, "[3] 3D World Render: " + (itemRadiusEnabled ? "ON" : "OFF"), x + 15, y + 85, itemRadiusEnabled ? 0x55FF55 : 0xFF5555);
-            context.drawTextWithShadow(textRenderer, "[4] Item Swap (G): " + (itemSwapEnabled ? "ON" : "OFF"), x + 15, y + 110, itemSwapEnabled ? 0x55FF55 : 0xFF5555);
-            context.drawTextWithShadow(textRenderer, "[5] Elytra Swap (V): " + (elytraSwapEnabled ? "ON" : "OFF"), x + 15, y + 135, elytraSwapEnabled ? 0x55FF55 : 0xFF5555);
+            context.drawTextWithShadow(textRenderer, "[0] Optimization: " + (optimizationEnabled ? "ON" : "OFF"), x + 15, y + 35, optimizationEnabled ? 0x55FF55 : 0xFF5555);
+            context.drawTextWithShadow(textRenderer, "[1] Player HUD: " + (hudEnabled ? "ON" : "OFF"), x + 15, y + 60, hudEnabled ? 0x55FF55 : 0xFF5555);
+            context.drawTextWithShadow(textRenderer, "[2] Target HUD: " + (targetHudEnabled ? "ON" : "OFF"), x + 15, y + 85, targetHudEnabled ? 0x55FF55 : 0xFF5555);
+            context.drawTextWithShadow(textRenderer, "[3] 3D World Render: " + (itemRadiusEnabled ? "ON" : "OFF"), x + 15, y + 110, itemRadiusEnabled ? 0x55FF55 : 0xFF5555);
+            context.drawTextWithShadow(textRenderer, "[4] Item Swap (G): " + (itemSwapEnabled ? "ON" : "OFF"), x + 15, y + 135, itemSwapEnabled ? 0x55FF55 : 0xFF5555);
+            context.drawTextWithShadow(textRenderer, "[5] Elytra Swap (V): " + (elytraSwapEnabled ? "ON" : "OFF"), x + 15, y + 160, elytraSwapEnabled ? 0x55FF55 : 0xFF5555);
 
             String modeStr = (swapMode == 0) ? "Тотем ⇄ Тотем" : "Сфера ⇄ Тотем";
-            context.drawTextWithShadow(textRenderer, "[M] Режим свапа: " + modeStr, x + 15, y + 165, 0xFFFF55);
+            context.drawTextWithShadow(textRenderer, "[M] Режим свапа: " + modeStr, x + 15, y + 190, 0xFFFF55);
 
             double seconds = swapDelayConfigTicks * 0.05;
-            context.drawTextWithShadow(textRenderer, "[6] Задержка: " + swapDelayConfigTicks + " тиков (" + seconds + " сек)", x + 15, y + 190, 0x55FFFF);
+            context.drawTextWithShadow(textRenderer, "[6] Задержка: " + swapDelayConfigTicks + " тиков (" + seconds + " сек)", x + 15, y + 215, 0x55FFFF);
 
-            context.drawTextWithShadow(textRenderer, "1-5, M (режим), 6 (задержка)", x + 15, y + 225, 0xAAAAAA);
+            context.drawTextWithShadow(textRenderer, "0-5, M (режим), 6 (задержка)", x + 15, y + 250, 0xAAAAAA);
         }
 
         @Override
         public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+            if (keyCode == GLFW.GLFW_KEY_0) { optimizationEnabled = !optimizationEnabled; return true; }
             if (keyCode == GLFW.GLFW_KEY_1) { hudEnabled = !hudEnabled; return true; }
             if (keyCode == GLFW.GLFW_KEY_2) { targetHudEnabled = !targetHudEnabled; return true; }
             if (keyCode == GLFW.GLFW_KEY_3) { itemRadiusEnabled = !itemRadiusEnabled; return true; }
