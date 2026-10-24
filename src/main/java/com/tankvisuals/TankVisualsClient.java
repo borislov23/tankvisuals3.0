@@ -13,6 +13,7 @@ import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
+import net.minecraft.item.SwordItem;
 import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
@@ -27,7 +28,7 @@ public class TankVisualsClient implements ClientModInitializer {
     public static boolean optimizationEnabled = true;
     public static boolean itemSwapEnabled = true;
     public static boolean elytraSwapEnabled = true;
-    public static boolean noMissEnabled = false; // Блокировка ударов по воздуху
+    public static boolean noMissEnabled = false; // NoMiss только для меча и булавы
 
     public static int swapMode = 0; 
     public static int swapDelayConfigTicks = 10;
@@ -89,15 +90,16 @@ public class TankVisualsClient implements ClientModInitializer {
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client.player == null) return;
 
-            // Логика NoMiss: если прицел НЕ на цели, сбрасываем нажатие атаки
+            // Логика NoMiss: работает ТОЛЬКО если в руке меч или булава, а цели нет
             if (noMissEnabled) {
-                boolean hasTarget = client.targetedEntity instanceof LivingEntity;
-                if (!hasTarget) {
-                    // Очищаем клики и сбрасываем нажатие
-                    while (client.options.attackKey.wasPressed()) {
-                        // Поглощаем нажатия в воздух
+                ItemStack mainHand = client.player.getMainHandStack();
+                boolean isSwordOrMace = (mainHand.getItem() instanceof SwordItem) || mainHand.isOf(Items.MACE);
+                
+                if (isSwordOrMace) {
+                    boolean hasTarget = client.targetedEntity instanceof LivingEntity;
+                    if (!hasTarget) {
+                        client.options.attackKey.setPressed(false);
                     }
-                    client.options.attackKey.setPressed(false);
                 }
             }
 
@@ -226,7 +228,7 @@ public class TankVisualsClient implements ClientModInitializer {
             double seconds = swapDelayConfigTicks * 0.05;
             context.drawTextWithShadow(textRenderer, "[6] Задержка: " + swapDelayConfigTicks + " тиков (" + seconds + " сек)", x + 15, y + 190, 0x55FFFF);
 
-            context.drawTextWithShadow(textRenderer, "[7] NoMiss (Блок кликов в воздух): " + (noMissEnabled ? "ON" : "OFF"), x + 15, y + 215, noMissEnabled ? 0x55FF55 : 0xFF5555);
+            context.drawTextWithShadow(textRenderer, "[7] NoMiss (Меч/Булава): " + (noMissEnabled ? "ON" : "OFF"), x + 15, y + 215, noMissEnabled ? 0x55FF55 : 0xFF5555);
 
             context.drawTextWithShadow(textRenderer, "1-7, M (режим), 6 (задержка)", x + 15, y + 240, 0xAAAAAA);
         }
