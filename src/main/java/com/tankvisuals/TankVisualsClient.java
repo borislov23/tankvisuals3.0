@@ -25,6 +25,7 @@ import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
+import org.joml.Matrix4f;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.List;
@@ -80,32 +81,32 @@ public class TankVisualsClient implements ClientModInitializer {
             Tessellator tessellator = Tessellator.getInstance();
             BufferBuilder buffer = tessellator.begin(VertexFormat.DrawMode.DEBUG_LINES, VertexFormats.POSITION_COLOR);
 
-            // 1. Дезориентация и Явная пыль (Око эндера / Сахар) -> Круг/Куб 10 блоков вокруг игрока
+            // 1. Дезориентация и Явная пыль (Око эндера / Сахар) -> 10 блоков вокруг игрока
             if (mainHand.isOf(Items.ENDER_EYE) || mainHand.isOf(Items.SUGAR)) {
                 Vec3d pos = client.player.getPos();
                 Box box = new Box(pos.x - 10, pos.y, pos.z - 10, pos.x + 10, pos.y + 3, pos.z + 10);
                 int col = playerInRange ? 0xFFFF0000 : 0xFFFFFFFF; // Красный если есть игрок, белый если нет
-                renderBoxOutlines(buffer, matrices, box, col);
+                drawBoxLines(buffer, matrices, box, col);
             }
             // 2. Снежок заморозки (7 блоков в стороны, высота 3)
             else if (mainHand.isOf(Items.SNOWBALL)) {
                 HitResult hit = client.crosshairTarget;
                 Vec3d targetPos = (hit != null && hit.getType() == HitResult.Type.BLOCK) ? hit.getPos() : client.player.getPos();
                 Box box = new Box(targetPos.x - 7, targetPos.y, targetPos.z - 7, targetPos.x + 7, targetPos.y + 3, targetPos.z + 7);
-                renderBoxOutlines(buffer, matrices, box, 0xFF55FFFF);
+                drawBoxLines(buffer, matrices, box, 0xFF55FFFF);
             }
             // 3. Огненный шар (5 блоков)
             else if (mainHand.isOf(Items.FIRE_CHARGE)) {
                 HitResult hit = client.crosshairTarget;
                 Vec3d targetPos = (hit != null && hit.getType() == HitResult.Type.BLOCK) ? hit.getPos() : client.player.getPos();
                 Box box = new Box(targetPos.x - 5, targetPos.y, targetPos.z - 5, targetPos.x + 5, targetPos.y + 3, targetPos.z + 5);
-                renderBoxOutlines(buffer, matrices, box, 0xFFFF5555);
+                drawBoxLines(buffer, matrices, box, 0xFFFF5555);
             }
             // 4. Трапка (Незеритовый лом) -> 5 блоков в высоту, по 2 блока в стороны (5x5x5)
             else if (mainHand.isOf(Items.NETHERITE_SCRAP)) {
                 Vec3d pos = client.player.getPos();
                 Box box = new Box(pos.x - 2, pos.y, pos.z - 2, pos.x + 3, pos.y + 5, pos.z + 3);
-                renderBoxOutlines(buffer, matrices, box, 0xFFFFAAAA);
+                drawBoxLines(buffer, matrices, box, 0xFFFFAAAA);
             }
             // 5. Пласт (Сушеная ламинария) -> Стена от центра по 2 блока вверх, вниз, вправо, влево
             else if (mainHand.isOf(Items.DRIED_KELP)) {
@@ -113,11 +114,11 @@ public class TankVisualsClient implements ClientModInitializer {
                 if (hit instanceof BlockHitResult blockHit) {
                     BlockPos bp = blockHit.getBlockPos();
                     Box box = new Box(bp.getX() - 2, bp.getY() - 2, bp.getZ() - 2, bp.getX() + 3, bp.getY() + 3, bp.getZ() + 3);
-                    renderBoxOutlines(buffer, matrices, box, 0xFFFFAA55);
+                    drawBoxLines(buffer, matrices, box, 0xFFFFAA55);
                 }
             }
 
-            BufferRenderer.drawWithShader(buffer.end());
+            BufferRenderer.drawWithGlobalProgram(buffer.end());
             RenderSystem.enableDepthTest();
             RenderSystem.disableBlend();
             matrices.pop();
@@ -136,25 +137,6 @@ public class TankVisualsClient implements ClientModInitializer {
                 }
                 String infoText = "TankVisuals | FPS: " + fps + " | Ping: " + ping + "ms";
                 context.drawTextWithShadow(client.textRenderer, infoText, 10, 10, 0x00FF66);
-            }
-
-            if (itemRadiusEnabled) {
-                ItemStack mainHand = client.player.getMainHandStack();
-                int color = playerInRange ? 0xFFFF0000 : 0xFFFFFFFF;
-
-                if (mainHand.isOf(Items.ENDER_EYE)) {
-                    context.drawTextWithShadow(client.textRenderer, "[Дезориентация] " + (playerInRange ? "ЦЕЛЬ В РАДИУСЕ!" : "Поиск..."), 10, 25, color);
-                } else if (mainHand.isOf(Items.SUGAR)) {
-                    context.drawTextWithShadow(client.textRenderer, "[Явная пыль] " + (playerInRange ? "ЦЕЛЬ В РАДИУСЕ!" : "Поиск..."), 10, 25, color);
-                } else if (mainHand.isOf(Items.SNOWBALL)) {
-                    context.drawTextWithShadow(client.textRenderer, "[Снежок Заморозки] Зона 3D активна", 10, 25, 0x55FFFF);
-                } else if (mainHand.isOf(Items.FIRE_CHARGE)) {
-                    context.drawTextWithShadow(client.textRenderer, "[Огненный Шар] Зона 3D активна", 10, 25, 0xFF5555);
-                } else if (mainHand.isOf(Items.NETHERITE_SCRAP)) {
-                    context.drawTextWithShadow(client.textRenderer, "[Трапка] 3D Куб 5x5x5", 10, 25, 0xFFAAAA);
-                } else if (mainHand.isOf(Items.DRIED_KELP)) {
-                    context.drawTextWithShadow(client.textRenderer, "[Пласт] 3D Стена ламинарии активна", 10, 25, 0xFFAA55);
-                }
             }
 
             if (targetHudEnabled) {
@@ -224,13 +206,36 @@ public class TankVisualsClient implements ClientModInitializer {
         });
     }
 
-    private void renderBoxOutlines(BufferBuilder buffer, MatrixStack matrices, Box box, int color) {
+    private void drawBoxLines(BufferBuilder buffer, MatrixStack matrices, Box box, int color) {
         float a = ((color >> 24) & 0xFF) / 255.0f;
         float r = ((color >> 16) & 0xFF) / 255.0f;
         float g = ((color >> 8) & 0xFF) / 255.0f;
         float b = (color & 0xFF) / 255.0f;
 
-        WorldRenderer.drawBox(matrices, buffer, box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ, r, g, b, a);
+        Matrix4f matrix = matrices.peek().getPositionMatrix();
+        double x1 = box.minX, y1 = box.minY, z1 = box.minZ;
+        double x2 = box.maxX, y2 = box.maxY, z2 = box.maxZ;
+
+        // 12 ребер куба
+        drawLine(buffer, matrix, x1, y1, z1, x2, y1, z1, r, g, b, a);
+        drawLine(buffer, matrix, x2, y1, z1, x2, y1, z2, r, g, b, a);
+        drawLine(buffer, matrix, x2, y1, z2, x1, y1, z2, r, g, b, a);
+        drawLine(buffer, matrix, x1, y1, z2, x1, y1, z1, r, g, b, a);
+
+        drawLine(buffer, matrix, x1, y2, z1, x2, y2, z1, r, g, b, a);
+        drawLine(buffer, matrix, x2, y2, z1, x2, y2, z2, r, g, b, a);
+        drawLine(buffer, matrix, x2, y2, z2, x1, y2, z2, r, g, b, a);
+        drawLine(buffer, matrix, x1, y2, z2, x1, y2, z1, r, g, b, a);
+
+        drawLine(buffer, matrix, x1, y1, z1, x1, y2, z1, r, g, b, a);
+        drawLine(buffer, matrix, x2, y1, z1, x2, y2, z1, r, g, b, a);
+        drawLine(buffer, matrix, x2, y1, z2, x2, y2, z2, r, g, b, a);
+        drawLine(buffer, matrix, x1, y1, z2, x1, y2, z2, r, g, b, a);
+    }
+
+    private void drawLine(BufferBuilder buffer, Matrix4f matrix, double x1, double y1, double z1, double x2, double y2, double z2, float r, float g, float b, float a) {
+        buffer.vertex(matrix, (float) x1, (float) y1, (float) z1).color(r, g, b, a);
+        buffer.vertex(matrix, (float) x2, (float) y2, (float) z2).color(r, g, b, a);
     }
 
     private void performSmartSwap(MinecraftClient client) {
@@ -310,7 +315,7 @@ public class TankVisualsClient implements ClientModInitializer {
             context.drawCenteredTextWithShadow(textRenderer, "TankVisuals // SoupVisuals Style", width / 2, y + 8, 0xFF55FF55);
 
             context.drawTextWithShadow(textRenderer, "[1] Player HUD: " + (hudEnabled ? "ON" : "OFF"), x + 15, y + 35, hudEnabled ? 0x55FF55 : 0xFF5555);
-            context.drawTextWithShadow(textRenderer, "[2] Target HUD: " + (targetHudEnabled ? "ON" : "OFF"), x + 15, y + 60, targetHudEnabled ? 0x55FF55 : 0xFF5555);
+            context.drawTextWithShadow(textRenderer, "[2] Target HUD: " + (targetHudEditorEnabled() ? "ON" : "OFF"), x + 15, y + 60, targetHudEnabled ? 0x55FF55 : 0xFF5555);
             context.drawTextWithShadow(textRenderer, "[3] 3D World Render: " + (itemRadiusEnabled ? "ON" : "OFF"), x + 15, y + 85, itemRadiusEnabled ? 0x55FF55 : 0xFF5555);
             context.drawTextWithShadow(textRenderer, "[4] Item Swap (G): " + (itemSwapEnabled ? "ON" : "OFF"), x + 15, y + 110, itemSwapEnabled ? 0x55FF55 : 0xFF5555);
             context.drawTextWithShadow(textRenderer, "[5] Elytra Swap (V): " + (elytraSwapEnabled ? "ON" : "OFF"), x + 15, y + 135, elytraSwapEnabled ? 0x55FF55 : 0xFF5555);
@@ -322,6 +327,10 @@ public class TankVisualsClient implements ClientModInitializer {
             context.drawTextWithShadow(textRenderer, "[6] Задержка: " + swapDelayConfigTicks + " тиков (" + seconds + " сек)", x + 15, y + 190, 0x55FFFF);
 
             context.drawTextWithShadow(textRenderer, "1-5, M (режим), 6 (задержка)", x + 15, y + 225, 0xAAAAAA);
+        }
+
+        private boolean targetHudEditorEnabled() {
+            return targetHudEnabled;
         }
 
         @Override
