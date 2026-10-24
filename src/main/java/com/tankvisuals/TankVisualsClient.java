@@ -62,22 +62,12 @@ public class TankVisualsClient implements ClientModInitializer {
                 "key.tankvisuals.elytra", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_V, "category.tankvisuals"
         ));
 
-        // 3D Рендер зон в мире
+        // 3D Рендер зон и траекторий в мире
         WorldRenderEvents.AFTER_TRANSLUCENT.register(context -> {
             MinecraftClient client = MinecraftClient.getInstance();
             if (!itemRadiusEnabled || client.player == null || client.world == null) return;
 
             ItemStack mainHand = client.player.getMainHandStack();
-            
-            boolean shouldRender = mainHand.isOf(Items.ENDER_EYE) || 
-                                   mainHand.isOf(Items.SUGAR) || 
-                                   mainHand.isOf(Items.SNOWBALL) || 
-                                   mainHand.isOf(Items.FIRE_CHARGE) || 
-                                   mainHand.isOf(Items.NETHERITE_SCRAP) || 
-                                   mainHand.isOf(Items.DRIED_KELP);
-            
-            if (!shouldRender) return;
-
             VertexConsumerProvider consumers = context.consumers();
             if (consumers == null) return;
 
@@ -88,41 +78,30 @@ public class TankVisualsClient implements ClientModInitializer {
             matrices.push();
             matrices.translate(-cameraPos.x, -cameraPos.y, -cameraPos.z);
 
-            // 1. Дезориентация / Явная пыль (10б)
+            // 1. Дезориентация и Явная пыль (Око / Сахар) -> Круг радиусом 10, высота 1
             if (mainHand.isOf(Items.ENDER_EYE) || mainHand.isOf(Items.SUGAR)) {
                 Vec3d pos = client.player.getPos();
-                Box box = new Box(pos.x - 10, pos.y, pos.z - 10, pos.x + 10, pos.y + 3, pos.z + 10);
                 int col = playerInRange ? 0xFFFF0000 : 0xFFFFFFFF;
-                draw3dBox(buffer, matrices, box, col);
+                draw3dCircle(buffer, matrices, pos, 10.0f, (float)pos.y, (float)pos.y + 1.0f, col);
             }
-            // 2. Снежок заморозки (7б)
-            else if (mainHand.isOf(Items.SNOWBALL)) {
-                HitResult hit = client.crosshairTarget;
-                Vec3d targetPos = (hit != null && hit.getType() == HitResult.Type.BLOCK) ? hit.getPos() : client.player.getPos();
-                Box box = new Box(targetPos.x - 7, targetPos.y, targetPos.z - 7, targetPos.x + 7, targetPos.y + 3, targetPos.z + 7);
-                draw3dBox(buffer, matrices, box, 0xFF55FFFF);
-            }
-            // 3. Огненный шар (5б)
-            else if (mainHand.isOf(Items.FIRE_CHARGE)) {
-                HitResult hit = client.crosshairTarget;
-                Vec3d targetPos = (hit != null && hit.getType() == HitResult.Type.BLOCK) ? hit.getPos() : client.player.getPos();
-                Box box = new Box(targetPos.x - 5, targetPos.y, targetPos.z - 5, targetPos.x + 5, targetPos.y + 3, targetPos.z + 5);
-                draw3dBox(buffer, matrices, box, 0xFFFF5555);
-            }
-            // 4. Трапка (Незеритовый лом) -> 5 блоков вверх, 2б в стороны
+            // 2. Трапка (Незеритовый лом) -> 2 блока вниз, 3 блока вверх, по 2 блока в стороны от игрока
             else if (mainHand.isOf(Items.NETHERITE_SCRAP)) {
                 Vec3d pos = client.player.getPos();
-                Box box = new Box(pos.x - 2, pos.y, pos.z - 2, pos.x + 3, pos.y + 5, pos.z + 3);
+                Box box = new Box(pos.x - 2, pos.y - 2, pos.z - 2, pos.x + 3, pos.y + 3, pos.z + 3);
                 draw3dBox(buffer, matrices, box, 0xFFFFAAAA);
             }
-            // 5. Пласт (Сушеная ламинария)
+            // 3. Пласт (Сушеная ламинария) -> Вокруг блока, на который смотрит игрок (по 2 блока в стороны и вперед)
             else if (mainHand.isOf(Items.DRIED_KELP)) {
                 HitResult hit = client.crosshairTarget;
                 if (hit instanceof BlockHitResult blockHit) {
                     BlockPos bp = blockHit.getBlockPos();
-                    Box box = new Box(bp.getX() - 2, bp.getY() - 2, bp.getZ() - 2, bp.getX() + 3, bp.getY() + 3, bp.getZ() + 3);
+                    Box box = new Box(bp.getX() - 2, bp.getY(), bp.getZ() - 2, bp.getX() + 3, bp.getY() + 2, bp.getZ() + 3);
                     draw3dBox(buffer, matrices, box, 0xFFFFAA55);
                 }
+            }
+            // 4. Траектория для Лука, Арбалета и Трезубца
+            else if (mainHand.isOf(Items.BOW) || mainHand.isOf(Items.CROSSBOW) || mainHand.isOf(Items.TRIDENT)) {
+                drawProjectileTrajectory(buffer, matrices, client);
             }
 
             matrices.pop();
@@ -210,6 +189,33 @@ public class TankVisualsClient implements ClientModInitializer {
         });
     }
 
+    private void draw3dCircle(VertexConsumer buffer, MatrixStack matrices, Vec3d center, float radius, float minY, float maxY, int color) {
+        float a = ((color >> 24) & 0xFF) / 255.0f;
+        float r = ((color >> 16) & 0xFF) / 255.0f;
+        float g = ((color >> 8) & 0xFF) / 255.0f;
+        float b = (color & 0xFF) / 255.0f;
+
+        Matrix4f matrix = matrices.peek().getPositionMatrix();
+        int segments = 32;
+        float px = (float) center.x;
+        float pz = (float) center.z;
+
+        for (int i = 0; i < segments; i++) {
+            double angle1 = (i / (double) segments) * 2 * Math.PI;
+            double angle2 = ((i + 1) / (double) segments) * 2 * Math.PI;
+
+            float x1 = (float) (px + radius * Math.cos(angle1));
+            float z1 = (float) (pz + radius * Math.sin(angle1));
+            float x2 = (float) (px + radius * Math.cos(angle2));
+            float z2 = (float) (pz + radius * Math.sin(angle2));
+
+            // Низ круга
+            line(buffer, matrix, x1, minY, z1, x2, minY, z2, r, g, b, a);
+            // Верх круга
+            line(buffer, matrix, x1, maxY, z1, x2, maxY, z2, r, g, b, a);
+        }
+    }
+
     private void draw3dBox(VertexConsumer buffer, MatrixStack matrices, Box box, int color) {
         float a = ((color >> 24) & 0xFF) / 255.0f;
         float r = ((color >> 16) & 0xFF) / 255.0f;
@@ -220,23 +226,49 @@ public class TankVisualsClient implements ClientModInitializer {
         float x1 = (float) box.minX, y1 = (float) box.minY, z1 = (float) box.minZ;
         float x2 = (float) box.maxX, y2 = (float) box.maxY, z2 = (float) box.maxZ;
 
-        // Нижний контур
         line(buffer, matrix, x1, y1, z1, x2, y1, z1, r, g, b, a);
         line(buffer, matrix, x2, y1, z1, x2, y1, z2, r, g, b, a);
         line(buffer, matrix, x2, y1, z2, x1, y1, z2, r, g, b, a);
         line(buffer, matrix, x1, y1, z2, x1, y1, z1, r, g, b, a);
 
-        // Верхний контур
         line(buffer, matrix, x1, y2, z1, x2, y2, z1, r, g, b, a);
         line(buffer, matrix, x2, y2, z1, x2, y2, z2, r, g, b, a);
         line(buffer, matrix, x2, y2, z2, x1, y2, z2, r, g, b, a);
         line(buffer, matrix, x1, y2, z2, x1, y2, z1, r, g, b, a);
 
-        // Вертикальные стойки
         line(buffer, matrix, x1, y1, z1, x1, y2, z1, r, g, b, a);
         line(buffer, matrix, x2, y1, z1, x2, y2, z1, r, g, b, a);
         line(buffer, matrix, x2, y1, z2, x2, y2, z2, r, g, b, a);
         line(buffer, matrix, x1, y1, z2, x1, y2, z2, r, g, b, a);
+    }
+
+    private void drawProjectileTrajectory(VertexConsumer buffer, MatrixStack matrices, MinecraftClient client) {
+        Matrix4f matrix = matrices.peek().getPositionMatrix();
+        Vec3d eyePos = client.player.getCameraPosVec(1.0f);
+        Vec3d look = client.player.getRotationVector();
+        
+        double x = eyePos.x;
+        double y = eyePos.y;
+        double z = eyePos.z;
+        
+        double vx = look.x * 1.5;
+        double vy = look.y * 1.5;
+        double vz = look.z * 1.5;
+
+        float r = 0.5f, g = 1.0f, b = 0.5f, a = 0.8f;
+
+        for (int i = 0; i < 40; i++) {
+            double nextX = x + vx;
+            double nextY = y + vy;
+            double nextZ = z + vz;
+
+            line(buffer, matrix, (float)x, (float)y, (float)z, (float)nextX, (float)nextY, (float)nextZ, r, g, b, a);
+
+            x = nextX;
+            y = nextY;
+            z = nextZ;
+            vy -= 0.05; // гравитация снаряда
+        }
     }
 
     private void line(VertexConsumer buffer, Matrix4f matrix, float x1, float y1, float z1, float x2, float y2, float z2, float r, float g, float b, float a) {
