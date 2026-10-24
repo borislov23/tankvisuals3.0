@@ -11,7 +11,6 @@ import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
-import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.screen.slot.SlotActionType;
@@ -19,7 +18,6 @@ import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 
 public class TankVisualsClient implements ClientModInitializer {
-    // Клавиши (можно менять в настройках управления Minecraft)
     public static KeyBinding guiKey;
     public static KeyBinding itemSwapKey;
     public static KeyBinding elytraSwapKey;
@@ -28,10 +26,15 @@ public class TankVisualsClient implements ClientModInitializer {
     public static boolean hudEnabled = true;
     public static boolean targetHudEnabled = true;
     public static boolean optimizationEnabled = true;
+    public static boolean itemSwapEnabled = true;
+    public static boolean elytraSwapEnabled = true;
+
+    // Переменные для задержки свапа (10 тиков = полсекунды)
+    private static int swapDelayTicks = 0;
+    private static boolean pendingSwap = false;
 
     @Override
     public void onInitializeClient() {
-        // Регистрация горячих клавиш
         guiKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "key.tankvisuals.gui", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_RIGHT_SHIFT, "category.tankvisuals"
         ));
@@ -47,7 +50,6 @@ public class TankVisualsClient implements ClientModInitializer {
             MinecraftClient client = MinecraftClient.getInstance();
             if (client == null || client.player == null) return;
 
-            // 1. Обычный HUD (FPS и Пинг)
             if (hudEnabled) {
                 int fps = client.getCurrentFps();
                 int ping = 0;
@@ -58,7 +60,6 @@ public class TankVisualsClient implements ClientModInitializer {
                 context.drawTextWithShadow(client.textRenderer, infoText, 10, 10, 0x00FF66);
             }
 
-            // 2. Target HUD (Цель, на которую смотришь)
             if (targetHudEnabled) {
                 Entity targetedEntity = client.targetedEntity;
                 if (targetedEntity instanceof LivingEntity living) {
@@ -67,14 +68,12 @@ public class TankVisualsClient implements ClientModInitializer {
                     int x = screenWidth / 2 - 60;
                     int y = screenHeight / 2 + 20;
 
-                    // Фон плашки Target HUD
                     context.fill(x, y, x + 120, y + 35, 0xAA000000);
                     String name = living.getName().getString();
                     if (name.length() > 15) name = name.substring(0, 12) + "...";
                     
                     context.drawTextWithShadow(client.textRenderer, name, x + 5, y + 5, 0xFFFFFF);
                     
-                    // Полоска здоровья
                     float health = living.getHealth();
                     float maxHealth = living.getMaxHealth();
                     int healthBarWidth = (int) ((health / maxHealth) * 110);
@@ -84,28 +83,37 @@ public class TankVisualsClient implements ClientModInitializer {
             }
         });
 
-        // Обработка нажатий в игре
+        // Обработка тиков игры (таймер задержки и нажатия)
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client.player == null) return;
 
-            // Открытие ClickGUI
+            // Логика отложенного свапа (задержка в 10 тиков)
+            if (pendingSwap) {
+                if (swapDelayTicks > 0) {
+                    swapDelayTicks--;
+                } else {
+                    performTotemHeadSwap(client);
+                    pendingSwap = false;
+                }
+            }
+
             if (guiKey.wasPressed()) {
                 client.setScreen(new SoupGuiScreen());
             }
 
-            // Свап Голова ⇄ Тотем
-            while (itemSwapKey.wasPressed()) {
-                performTotemHeadSwap(client);
+            while (itemSwapEnabled && itemSwapKey.wasPressed()) {
+                if (!pendingSwap) {
+                    swapDelayTicks = 10; // Установили задержку 10 тиков
+                    pendingSwap = true;
+                }
             }
 
-            // Элитра-свап (нагрудник ⇄ элитра)
-            while (elytraSwapKey.wasPressed()) {
+            while (elytraSwapEnabled && elytraSwapKey.wasPressed()) {
                 performElytraSwap(client);
             }
         });
     }
 
-    // Логика свапа: Тотем в левую руку / Голова игрока
     private void performTotemHeadSwap(MinecraftClient client) {
         if (client.interactionManager == null || client.player == null) return;
         int syncId = client.player.playerScreenHandler.syncId;
@@ -120,11 +128,10 @@ public class TankVisualsClient implements ClientModInitializer {
         }
     }
 
-    // Логика элитра-свапа (слот нагрудника — 6)
     private void performElytraSwap(MinecraftClient client) {
         if (client.interactionManager == null || client.player == null) return;
         int syncId = client.player.playerScreenHandler.syncId;
-        ItemStack chestStack = client.player.getInventory().getStack(38); // Слот нагрудника
+        ItemStack chestStack = client.player.getInventory().getStack(38);
 
         if (!chestStack.isOf(Items.ELYTRA)) {
             int elytraSlot = findItemSlot(client, Items.ELYTRA);
@@ -164,7 +171,6 @@ public class TankVisualsClient implements ClientModInitializer {
         client.interactionManager.clickSlot(syncId, slot, 0, SlotActionType.PICKUP, client.player);
     }
 
-    // Красивое ClickGUI в стиле SoupVisuals
     private static class SoupGuiScreen extends Screen {
         protected SoupGuiScreen() {
             super(Text.literal("SoupVisuals ClickGUI"));
@@ -174,19 +180,19 @@ public class TankVisualsClient implements ClientModInitializer {
         public void render(DrawContext context, int mouseX, int mouseY, float delta) {
             super.render(context, mouseX, mouseY, delta);
             int x = width / 2 - 130;
-            int y = height / 2 - 90;
+            int y = height / 2 - 100;
 
-            // Окно меню
-            context.fill(x, y, x + 260, y + 180, 0xEE1A1A1A);
+            context.fill(x, y, x + 260, y + 200, 0xEE1A1A1A);
             context.fill(x, y, x + 260, y + 25, 0xEE2A2A2A);
             context.drawCenteredTextWithShadow(textRenderer, "TankVisuals // SoupVisuals Style", width / 2, y + 8, 0xFF55FF55);
 
-            // Опции
-            context.drawTextWithShadow(textRenderer, "[1] Player HUD: " + (hudEnabled ? "ON" : "OFF"), x + 15, y + 40, hudEnabled ? 0x55FF55 : 0xFF5555);
-            context.drawTextWithShadow(textRenderer, "[2] Target HUD: " + (targetHudEnabled ? "ON" : "OFF"), x + 15, y + 70, targetHudEnabled ? 0x55FF55 : 0xFF5555);
-            context.drawTextWithShadow(textRenderer, "[3] Optimization: " + (optimizationEnabled ? "ON" : "OFF"), x + 15, y + 100, optimizationEnabled ? 0x55FF55 : 0xFF5555);
+            context.drawTextWithShadow(textRenderer, "[1] Player HUD: " + (hudEnabled ? "ON" : "OFF"), x + 15, y + 35, hudEnabled ? 0x55FF55 : 0xFF5555);
+            context.drawTextWithShadow(textRenderer, "[2] Target HUD: " + (targetHudEnabled ? "ON" : "OFF"), x + 15, y + 60, targetHudEnabled ? 0x55FF55 : 0xFF5555);
+            context.drawTextWithShadow(textRenderer, "[3] Optimization: " + (optimizationEnabled ? "ON" : "OFF"), x + 15, y + 85, optimizationEnabled ? 0x55FF55 : 0xFF5555);
+            context.drawTextWithShadow(textRenderer, "[4] Item Swap (G): " + (itemSwapEnabled ? "ON" : "OFF"), x + 15, y + 110, itemSwapEnabled ? 0x55FF55 : 0xFF5555);
+            context.drawTextWithShadow(textRenderer, "[5] Elytra Swap (V): " + (elytraSwapEnabled ? "ON" : "OFF"), x + 15, y + 135, elytraSwapEnabled ? 0x55FF55 : 0xFF5555);
 
-            context.drawTextWithShadow(textRenderer, "Нажми 1, 2 или 3 для переключения", x + 15, y + 145, 0xAAAAAA);
+            context.drawTextWithShadow(textRenderer, "Нажми 1-5 для переключения", x + 15, y + 170, 0xAAAAAA);
         }
 
         @Override
@@ -194,6 +200,8 @@ public class TankVisualsClient implements ClientModInitializer {
             if (keyCode == GLFW.GLFW_KEY_1) { hudEnabled = !hudEnabled; return true; }
             if (keyCode == GLFW.GLFW_KEY_2) { targetHudEnabled = !targetHudEnabled; return true; }
             if (keyCode == GLFW.GLFW_KEY_3) { optimizationEnabled = !optimizationEnabled; return true; }
+            if (keyCode == GLFW.GLFW_KEY_4) { itemSwapEnabled = !itemSwapEnabled; return true; }
+            if (keyCode == GLFW.GLFW_KEY_5) { elytraSwapEnabled = !elytraSwapEnabled; return true; }
             return super.keyPressed(keyCode, scanCode, modifiers);
         }
     }
