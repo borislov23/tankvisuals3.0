@@ -78,24 +78,24 @@ public class TankVisualsClient implements ClientModInitializer {
             matrices.push();
             matrices.translate(-cameraPos.x, -cameraPos.y, -cameraPos.z);
 
-            // 1. Дезориентация и Явная пыль (Око / Сахар) -> Круг радиусом 10, высота 1
+            // 1. Дезориентация и Явная пыль (Око / Сахар) -> Круглый цилиндр радиусом 10, высота 1 блок
             if (mainHand.isOf(Items.ENDER_EYE) || mainHand.isOf(Items.SUGAR)) {
                 Vec3d pos = client.player.getPos();
                 int col = playerInRange ? 0xFFFF0000 : 0xFFFFFFFF;
                 draw3dCircle(buffer, matrices, pos, 10.0f, (float)pos.y, (float)pos.y + 1.0f, col);
             }
-            // 2. Трапка (Незеритовый лом) -> 2 блока вниз, 3 блока вверх, по 2 блока в стороны от игрока
+            // 2. Трапка (Незеритовый лом) -> 2 блока вниз, 3 блока вверх, по 2 блока в стороны от игрока (центр)
             else if (mainHand.isOf(Items.NETHERITE_SCRAP)) {
                 Vec3d pos = client.player.getPos();
                 Box box = new Box(pos.x - 2, pos.y - 2, pos.z - 2, pos.x + 3, pos.y + 3, pos.z + 3);
                 draw3dBox(buffer, matrices, box, 0xFFFFAAAA);
             }
-            // 3. Пласт (Сушеная ламинария) -> Вокруг блока, на который смотрит игрок (по 2 блока в стороны и вперед)
+            // 3. Пласт (Сушеная ламинария) -> По 2 блока в стороны и вперед от точки взгляда (без лишних блоков справа)
             else if (mainHand.isOf(Items.DRIED_KELP)) {
                 HitResult hit = client.crosshairTarget;
                 if (hit instanceof BlockHitResult blockHit) {
                     BlockPos bp = blockHit.getBlockPos();
-                    Box box = new Box(bp.getX() - 2, bp.getY(), bp.getZ() - 2, bp.getX() + 3, bp.getY() + 2, bp.getZ() + 3);
+                    Box box = new Box(bp.getX() - 2, bp.getY(), bp.getZ() - 2, bp.getX() + 2, bp.getY() + 2, bp.getZ() + 2);
                     draw3dBox(buffer, matrices, box, 0xFFFFAA55);
                 }
             }
@@ -196,7 +196,7 @@ public class TankVisualsClient implements ClientModInitializer {
         float b = (color & 0xFF) / 255.0f;
 
         Matrix4f matrix = matrices.peek().getPositionMatrix();
-        int segments = 32;
+        int segments = 36;
         float px = (float) center.x;
         float pz = (float) center.z;
 
@@ -209,9 +209,7 @@ public class TankVisualsClient implements ClientModInitializer {
             float x2 = (float) (px + radius * Math.cos(angle2));
             float z2 = (float) (pz + radius * Math.sin(angle2));
 
-            // Низ круга
             line(buffer, matrix, x1, minY, z1, x2, minY, z2, r, g, b, a);
-            // Верх круга
             line(buffer, matrix, x1, maxY, z1, x2, maxY, z2, r, g, b, a);
         }
     }
@@ -267,7 +265,7 @@ public class TankVisualsClient implements ClientModInitializer {
             x = nextX;
             y = nextY;
             z = nextZ;
-            vy -= 0.05; // гравитация снаряда
+            vy -= 0.05;
         }
     }
 
