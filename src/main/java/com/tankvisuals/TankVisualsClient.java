@@ -7,11 +7,11 @@ import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.network.AbstractClientPlayerEntity;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
-import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.screen.slot.SlotActionType;
@@ -82,9 +82,9 @@ public class TankVisualsClient implements ClientModInitializer {
                     context.drawTextWithShadow(client.textRenderer, "[Снежок Заморозки] Зона: 7б (высота 3б)", 10, 25, 0x55FFFF);
                 } else if (mainHand.isOf(Items.FIRE_CHARGE)) {
                     context.drawTextWithShadow(client.textRenderer, "[Огненный Шар] Зона поражения: 5 блоков", 10, 25, 0xFF5555);
-                } else if (mainHand.isOf(Items.NETHERITE_SCRAP)) { // Трапка (незеритовый лом)
+                } else if (mainHand.isOf(Items.NETHERITE_SCRAP)) {
                     context.drawTextWithShadow(client.textRenderer, "[Трапка] Зона: 5 блоков в высоту, по 2б в стороны", 10, 25, 0xFFAAAA);
-                } else if (mainHand.isOf(Items.BRICK)) { // Пласт (можно заменить предмет под себя, например кирпич)
+                } else if (mainHand.isOf(Items.BRICK)) {
                     context.drawTextWithShadow(client.textRenderer, "[Пласт] Стена: по 2б вверх/вниз/вправо/влево", 10, 25, 0xFFAA55);
                 }
             }
@@ -119,8 +119,9 @@ public class TankVisualsClient implements ClientModInitializer {
                 ItemStack mainHand = client.player.getMainHandStack();
                 if (mainHand.isOf(Items.ENDER_EYE) || mainHand.isOf(Items.SUGAR)) {
                     boolean foundPlayer = false;
-                    List<PlayerEntity> players = client.world.getPlayers();
-                    for (PlayerEntity p : players) {
+                    // Исправлен тип списка на AbstractClientPlayerEntity
+                    List<AbstractClientPlayerEntity> players = client.world.getPlayers();
+                    for (AbstractClientPlayerEntity p : players) {
                         if (p != client.player && !p.isSpectator()) {
                             double distance = client.player.distanceTo(p);
                             if (distance <= 10.0) {
