@@ -22,16 +22,11 @@ public class TankVisualsClient implements ClientModInitializer {
     public static KeyBinding itemSwapKey;
     public static KeyBinding elytraSwapKey;
 
-    // Переключатели модулей
     public static boolean hudEnabled = true;
     public static boolean targetHudEnabled = true;
     public static boolean optimizationEnabled = true;
     public static boolean itemSwapEnabled = true;
     public static boolean elytraSwapEnabled = true;
-
-    // Переменные для задержки свапа (10 тиков = полсекунды)
-    private static int swapDelayTicks = 0;
-    private static boolean pendingSwap = false;
 
     @Override
     public void onInitializeClient() {
@@ -45,7 +40,7 @@ public class TankVisualsClient implements ClientModInitializer {
                 "key.tankvisuals.elytra", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_V, "category.tankvisuals"
         ));
 
-        // Рендер HUD и Target HUD
+        // Отрисовка HUD
         HudRenderCallback.EVENT.register((context, tickCounter) -> {
             MinecraftClient client = MinecraftClient.getInstance();
             if (client == null || client.player == null) return;
@@ -83,32 +78,19 @@ public class TankVisualsClient implements ClientModInitializer {
             }
         });
 
-        // Обработка тиков игры (таймер задержки и нажатия)
+        // Слушатель нажатий
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client.player == null) return;
-
-            // Логика отложенного свапа (задержка в 10 тиков)
-            if (pendingSwap) {
-                if (swapDelayTicks > 0) {
-                    swapDelayTicks--;
-                } else {
-                    performTotemHeadSwap(client);
-                    pendingSwap = false;
-                }
-            }
 
             if (guiKey.wasPressed()) {
                 client.setScreen(new SoupGuiScreen());
             }
 
-            while (itemSwapEnabled && itemSwapKey.wasPressed()) {
-                if (!pendingSwap) {
-                    swapDelayTicks = 10; // Установили задержку 10 тиков
-                    pendingSwap = true;
-                }
+            if (itemSwapEnabled && itemSwapKey.wasPressed()) {
+                performTotemHeadSwap(client);
             }
 
-            while (elytraSwapEnabled && elytraSwapKey.wasPressed()) {
+            if (elytraSwapEnabled && elytraSwapKey.wasPressed()) {
                 performElytraSwap(client);
             }
         });
@@ -119,11 +101,12 @@ public class TankVisualsClient implements ClientModInitializer {
         int syncId = client.player.playerScreenHandler.syncId;
         ItemStack offhandStack = client.player.getOffHandStack();
 
+        // Поиск по всему инвентарю (включая хотбар)
         if (!offhandStack.isOf(Items.TOTEM_OF_UNDYING)) {
-            int totemSlot = findItemSlot(client, Items.TOTEM_OF_UNDYING);
+            int totemSlot = findAnyItemSlot(client, Items.TOTEM_OF_UNDYING);
             if (totemSlot != -1) swapSlotWithOffhand(client, syncId, totemSlot);
         } else {
-            int headSlot = findItemSlot(client, Items.PLAYER_HEAD);
+            int headSlot = findAnyItemSlot(client, Items.PLAYER_HEAD);
             if (headSlot != -1) swapSlotWithOffhand(client, syncId, headSlot);
         }
     }
@@ -131,36 +114,39 @@ public class TankVisualsClient implements ClientModInitializer {
     private void performElytraSwap(MinecraftClient client) {
         if (client.interactionManager == null || client.player == null) return;
         int syncId = client.player.playerScreenHandler.syncId;
-        ItemStack chestStack = client.player.getInventory().getStack(38);
+        
+        // Слот нагрудника в инвентаре игрока = 6
+        ItemStack chestStack = client.player.playerScreenHandler.getSlot(6).getStack();
 
         if (!chestStack.isOf(Items.ELYTRA)) {
-            int elytraSlot = findItemSlot(client, Items.ELYTRA);
+            int elytraSlot = findAnyItemSlot(client, Items.ELYTRA);
             if (elytraSlot != -1) {
-                client.interactionManager.clickSlot(syncId, elytraSlot, 0, SlotActionType.PICKUP, client.player);
-                client.interactionManager.clickSlot(syncId, 6, 0, SlotActionType.PICKUP, client.player);
-                client.interactionManager.clickSlot(syncId, elytraSlot, 0, SlotActionType.PICKUP, client.player);
+                swapArmorSlot(client, syncId, elytraSlot, 6);
             }
         } else {
-            int chestplateSlot = findBestChestplateSlot(client);
+            int chestplateSlot = findChestplateSlot(client);
             if (chestplateSlot != -1) {
-                client.interactionManager.clickSlot(syncId, chestplateSlot, 0, SlotActionType.PICKUP, client.player);
-                client.interactionManager.clickSlot(syncId, 6, 0, SlotActionType.PICKUP, client.player);
-                client.interactionManager.clickSlot(syncId, chestplateSlot, 0, SlotActionType.PICKUP, client.player);
+                swapArmorSlot(client, syncId, chestplateSlot, 6);
             }
         }
     }
 
-    private int findItemSlot(MinecraftClient client, net.minecraft.item.Item item) {
-        for (int i = 9; i < 45; i++) {
-            if (client.player.playerScreenHandler.getSlot(i).getStack().isOf(item)) return i;
+    // Ищет предмет по абсолютно всем слотам инвентаря
+    private int findAnyItemSlot(MinecraftClient client, net.minecraft.item.Item item) {
+        for (int i = 0; i < client.player.playerScreenHandler.slots.size(); i++) {
+            if (client.player.playerScreenHandler.getSlot(i).getStack().isOf(item)) {
+                return i;
+            }
         }
         return -1;
     }
 
-    private int findBestChestplateSlot(MinecraftClient client) {
-        for (int i = 9; i < 45; i++) {
+    private int findChestplateSlot(MinecraftClient client) {
+        for (int i = 0; i < client.player.playerScreenHandler.slots.size(); i++) {
             ItemStack stack = client.player.playerScreenHandler.getSlot(i).getStack();
-            if (stack.getItem().toString().contains("chestplate")) return i;
+            if (stack.getItem().toString().contains("chestplate")) {
+                return i;
+            }
         }
         return -1;
     }
@@ -169,6 +155,12 @@ public class TankVisualsClient implements ClientModInitializer {
         client.interactionManager.clickSlot(syncId, slot, 0, SlotActionType.PICKUP, client.player);
         client.interactionManager.clickSlot(syncId, 45, 0, SlotActionType.PICKUP, client.player);
         client.interactionManager.clickSlot(syncId, slot, 0, SlotActionType.PICKUP, client.player);
+    }
+
+    private void swapArmorSlot(MinecraftClient client, int syncId, int fromSlot, int armorSlot) {
+        client.interactionManager.clickSlot(syncId, fromSlot, 0, SlotActionType.PICKUP, client.player);
+        client.interactionManager.clickSlot(syncId, armorSlot, 0, SlotActionType.PICKUP, client.player);
+        client.interactionManager.clickSlot(syncId, fromSlot, 0, SlotActionType.PICKUP, client.player);
     }
 
     private static class SoupGuiScreen extends Screen {
