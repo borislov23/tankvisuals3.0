@@ -67,6 +67,17 @@ public class TankVisualsClient implements ClientModInitializer {
             if (!itemRadiusEnabled || client.player == null || client.world == null) return;
 
             ItemStack mainHand = client.player.getMainHandStack();
+            
+            // Проверяем, держит ли игрок нужный предмет, чтобы не создавать пустой буфер
+            boolean shouldRender = mainHand.isOf(Items.ENDER_EYE) || 
+                                   mainHand.isOf(Items.SUGAR) || 
+                                   mainHand.isOf(Items.SNOWBALL) || 
+                                   mainHand.isOf(Items.FIRE_CHARGE) || 
+                                   mainHand.isOf(Items.NETHERITE_SCRAP) || 
+                                   mainHand.isOf(Items.DRIED_KELP);
+            
+            if (!shouldRender) return;
+
             MatrixStack matrices = context.matrixStack();
             Vec3d cameraPos = context.camera().getPos();
 
